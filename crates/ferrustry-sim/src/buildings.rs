@@ -46,8 +46,12 @@ pub struct Building {
     pub(crate) row: u32,
     /// Энергосеть, к которой подключена постройка.
     pub(crate) power_net: Option<u32>,
-    /// Курсор round-robin выгрузки по периметру.
+    /// Курсор round-robin выгрузки по списку получателей.
     pub(crate) dump_cursor: u32,
+    /// Эпоха топологии, для которой построен `dump_links`.
+    pub(crate) dump_epoch: u64,
+    /// Кэш получателей выгрузки (только те, кто в принципе может принять предмет).
+    pub(crate) dump_links: Vec<crate::world::Link>,
 }
 
 impl Building {

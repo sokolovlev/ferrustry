@@ -40,8 +40,12 @@ Headless, без графики. Карта 64×64 из seed; на ней:
 | S1-10 | `ferrustry-headless`: `run <scenario>`, `bench <B1|B2>`, `replay <file>`, JSON-отчёт | S1-09 | Бенчмарки воспроизводимы, отчёт содержит поля из performance.md | Частично: run/resume/save-check/bench; replay — нет |
 | S1-11 | Счётчик аллокаций в bench-сборке | S1-10 | B2-10k: 0 аллокаций в стационарном тике (или задокументированная причина) | Сделано: 0 аллокаций/тик в B2 |
 | S1-12 | Документация публичных API (`#![warn(missing_docs)]`), `docs/development/` | S1-01 | `cargo doc` без предупреждений | Сделано (`cargo doc` без предупреждений); `docs/development/` создан |
-| S1-13 | Бенчмарки B2-blocked, B2-short, B2-cores | S1-10 | Отчёты в `docs/benchmarks/results/` | Не начато |
+| S1-13 | Бенчмарки реалистичной логистики | S1-10 | Отчёты в `docs/benchmarks/results/` | Сделано: B2-blocked, B2-comb |
 | S1-14 | Replay: запись seed + команд, `headless replay` | S1-10 | Replay воспроизводит хеш состояния | Не начато |
+
+## Backlog производительности
+
+См. `docs/performance-design.md`, задачи P-01…P-08.
 
 ## Backlog следующих этапов (укрупнённо)
 

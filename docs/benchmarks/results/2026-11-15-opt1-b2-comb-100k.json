@@ -1,0 +1,31 @@
+{
+  "scenario": "b2-comb",
+  "ferrustry_version": "0.1.0",
+  "commit": "81ac190+wip",
+  "profile": "release",
+  "tick_rate_hz": 30,
+  "budget_us": 33333.333333333336,
+  "warmup_ticks": 2000,
+  "measured_ticks": 2000,
+  "buildings": 111547,
+  "conveyor_segments": 12469,
+  "awake_segments": 12469,
+  "items_on_conveyors": 318802,
+  "setup_ms": 180.685195,
+  "tick": {
+    "mean_us": 491.2391424999995,
+    "p50_us": 479.55699999999996,
+    "p99_us": 640.914,
+    "max_us": 1283.3110000000001,
+    "over_budget": 0
+  },
+  "allocations_per_tick": 0.0,
+  "peak_rss_kib": 25784,
+  "state_hash": "e056db94d6232c1b",
+  "machine": {
+    "os": "linux",
+    "arch": "x86_64",
+    "cpu": "Intel(R) Xeon(R) Processor",
+    "logical_cpus": 4
+  }
+}

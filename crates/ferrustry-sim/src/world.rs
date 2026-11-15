@@ -126,12 +126,42 @@ pub struct World {
     pub(crate) cores: Table<CoreRow>,
     pub(crate) segments: Vec<Option<Segment>>,
     free_segments: Vec<u32>,
+    /// Битсет бодрствующих сегментов (бит на сегмент).
+    seg_awake: Vec<u64>,
+    /// Отключить усыпление (эталонный режим для дифференциальных тестов).
+    no_sleep: bool,
+    /// Эпоха топологии: растёт при любой стройке/сносе; инвалидирует кэши связей.
+    topo_epoch: u64,
     pub(crate) power: PowerState,
     rng: Rng,
     stats: Stats,
 }
 
 const NO_SEGMENT: u32 = u32::MAX;
+
+/// Разрешённая связь «откуда → куда» для передачи предметов (кэшируется по эпохе топологии).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub(crate) enum Link {
+    /// На тайле нет постройки.
+    #[default]
+    Nothing,
+    /// Постройка, которая никогда не примет предмет с этой стороны.
+    Refuses,
+    /// Производство или ядро.
+    Building(BuildingId),
+    /// Сегмент конвейера: тайл `k`, вход сзади или сбоку.
+    Segment {
+        /// Индекс сегмента.
+        seg: u32,
+        /// Тайл внутри сегмента.
+        k: u32,
+        /// Вход сзади (иначе сбоку).
+        behind: bool,
+    },
+}
+
+/// Максимальная длина сегмента конвейера в тайлах.
+pub const MAX_SEGMENT_TILES: usize = 32;
 
 impl World {
     /// Создаёт пустой мир, залитый одним полом.
@@ -150,6 +180,9 @@ impl World {
             cores: Table::default(),
             segments: Vec::new(),
             free_segments: Vec::new(),
+            seg_awake: Vec::new(),
+            no_sleep: false,
+            topo_epoch: 1,
             power: PowerState::default(),
             rng: Rng::new(seed),
             stats: Stats::new(items),
@@ -223,7 +256,7 @@ impl World {
     pub fn items_on_conveyors(&self) -> Vec<u64> {
         let mut total = vec![0u64; self.item_count as usize];
         for seg in self.segments() {
-            for &(item, _) in &seg.items {
+            for item in seg.items() {
                 if let Some(t) = total.get_mut(usize::from(item.0)) {
                     *t += 1;
                 }
@@ -339,6 +372,7 @@ impl World {
             BlockKind::PowerNode { .. } => KindTag::PowerNode,
             BlockKind::Core { .. } => KindTag::Core,
         };
+        self.topo_epoch += 1;
         let id = self.buildings.insert(Building {
             block,
             origin,
@@ -348,6 +382,8 @@ impl World {
             row: 0,
             power_net: None,
             dump_cursor: 0,
+            dump_epoch: 0,
+            dump_links: Vec::new(),
         });
         for dy in 0..size {
             for dx in 0..size {
@@ -403,6 +439,8 @@ impl World {
         }
         if tag == KindTag::Conveyor {
             self.rebuild_conveyors_around(reg, origin, &[]);
+        } else if let Some(b) = self.buildings.get(id).cloned() {
+            self.wake_perimeter(&b);
         }
         Ok(id)
     }
@@ -490,6 +528,8 @@ impl World {
         }
         if let Some(seg) = old_segment {
             self.rebuild_conveyors_around(reg, at, &[seg]);
+        } else {
+            self.wake_perimeter(&b);
         }
         Ok(())
     }
@@ -542,13 +582,19 @@ impl World {
     }
 
     fn alloc_segment(&mut self, seg: Segment) -> u32 {
-        if let Some(i) = self.free_segments.pop() {
+        let i = if let Some(i) = self.free_segments.pop() {
             self.segments[i as usize] = Some(seg);
             i
         } else {
             self.segments.push(Some(seg));
             u32::try_from(self.segments.len() - 1).unwrap_or(NO_SEGMENT)
+        };
+        let words = self.segments.len().div_ceil(64);
+        if self.seg_awake.len() < words {
+            self.seg_awake.resize(words, 0);
         }
+        self.wake_segment(i);
+        i
     }
 
     /// Перестраивает сегменты, затронутые изменением тайла `around`, сохраняя предметы.
@@ -573,6 +619,10 @@ impl World {
                 continue;
             };
             self.free_segments.push(s);
+            self.sleep_segment(s as usize);
+            for wt in std::mem::take(&mut seg.waiters) {
+                self.wake_segment(wt);
+            }
             let seg_tiles = std::mem::take(&mut seg.tiles);
             seg.tiles.clone_from(&seg_tiles);
             seg.drain_by_tile(|k, item, off| {
@@ -632,6 +682,7 @@ impl World {
             return;
         };
         let mut chain = vec![head];
+        let mut dirs = vec![dir];
         visited.insert(head);
         let mut cur = head;
         loop {
@@ -647,6 +698,7 @@ impl World {
             };
             visited.insert(next);
             chain.push(next);
+            dirs.push(d);
             cur = next;
             dir = d;
         }
@@ -654,29 +706,37 @@ impl World {
             BlockKind::Conveyor { speed } => speed,
             _ => 1,
         };
-        let l = chain.len();
-        let mut items: Vec<(ItemId, u32)> = Vec::new();
-        for (k, p) in chain.iter().enumerate() {
-            if let Some(v) = tile_items.remove(p) {
-                for (item, off) in v {
-                    items.push((item, (l - 1 - k) as u32 * TILE_LEN + off));
+        // Длинные цепочки режутся на сегменты не длиннее MAX_SEGMENT_TILES: это ограничивает
+        // поиск позиции при вставке, стоимость перестройки и даёт единицу работы для потоков.
+        for (piece, piece_dirs) in chain
+            .chunks(MAX_SEGMENT_TILES)
+            .zip(dirs.chunks(MAX_SEGMENT_TILES))
+        {
+            let out_dir = piece_dirs.last().copied().unwrap_or(dir);
+            let l = piece.len();
+            let mut items: Vec<(ItemId, u32)> = Vec::new();
+            for (k, p) in piece.iter().enumerate() {
+                if let Some(v) = tile_items.remove(p) {
+                    for (item, off) in v {
+                        items.push((item, (l - 1 - k) as u32 * TILE_LEN + off));
+                    }
                 }
             }
-        }
-        items.sort_by_key(|&(_, pos)| pos);
-        let mut seg = Segment::new(chain.clone(), dir, speed);
-        let lost = seg.fill_sorted(items.iter().copied());
-        if lost > 0 {
-            // предметы, не поместившиеся при слиянии, уничтожаются (крайний случай)
-            for &(item, _) in items.iter().rev().take(lost as usize) {
-                Stats::bump(&mut self.stats.destroyed, item, 1);
+            items.sort_by_key(|&(_, pos)| pos);
+            let mut seg = Segment::new(piece.to_vec(), out_dir, speed);
+            let lost = seg.fill_sorted(items.iter().copied());
+            if lost > 0 {
+                // предметы, не поместившиеся при слиянии, уничтожаются (крайний случай)
+                for &(item, _) in items.iter().rev().take(lost as usize) {
+                    Stats::bump(&mut self.stats.destroyed, item, 1);
+                }
             }
-        }
-        let s = self.alloc_segment(seg);
-        for (k, p) in chain.iter().enumerate() {
-            if let Some(row) = self.conveyor_row_mut(*p) {
-                row.segment = s;
-                row.index = k as u32;
+            let s = self.alloc_segment(seg);
+            for (k, p) in piece.iter().enumerate() {
+                if let Some(row) = self.conveyor_row_mut(*p) {
+                    row.segment = s;
+                    row.index = k as u32;
+                }
             }
         }
     }
@@ -685,47 +745,63 @@ impl World {
     // Передача предметов
     // -----------------------------------------------------------------------
 
-    /// Предлагает предмет постройке на тайле `target` от соседнего тайла `from`.
-    /// `current` — сегмент, который сейчас извлечён из списка (выход самого себя в цикле).
-    fn offer(
-        &mut self,
-        reg: &ContentRegistry,
-        target: TilePos,
-        from: TilePos,
-        item: ItemId,
-        current: Option<(u32, &mut Segment)>,
-    ) -> bool {
+    /// Куда попадёт предмет, переданный с тайла `from` на соседний тайл `target`.
+    /// Чистое чтение; результат можно кэшировать до следующего изменения топологии.
+    fn resolve_link(&self, target: TilePos, from: TilePos) -> Link {
         let Some(id) = self.grid.building(target) else {
-            return false;
+            return Link::Nothing;
         };
+        let Some(b) = self.buildings.get(id) else {
+            return Link::Nothing;
+        };
+        match b.tag {
+            KindTag::Conveyor => {
+                if target.step(b.rot) == from {
+                    return Link::Refuses; // лента смотрит на источник
+                }
+                let Some(cr) = self.conveyors.rows.get(b.row as usize) else {
+                    return Link::Nothing;
+                };
+                Link::Segment {
+                    seg: cr.segment,
+                    k: cr.index,
+                    behind: target.step(b.rot.opposite()) == from,
+                }
+            }
+            KindTag::Crafter | KindTag::Core => Link::Building(id),
+            KindTag::Drill | KindTag::Generator | KindTag::PowerNode => Link::Refuses,
+        }
+    }
+
+    /// Передаёт предмет по разрешённой связи.
+    fn deliver(&mut self, reg: &ContentRegistry, link: Link, item: ItemId) -> bool {
+        match link {
+            Link::Nothing | Link::Refuses => false,
+            Link::Building(id) => self.offer_building(reg, id, item),
+            Link::Segment { seg, k, behind } => {
+                let Some(sg) = self.segments.get_mut(seg as usize).and_then(Option::as_mut) else {
+                    return false;
+                };
+                let ok = if behind {
+                    sg.try_insert_behind(item, k as usize)
+                } else {
+                    sg.try_insert_side(item, k as usize)
+                };
+                if ok {
+                    self.wake_segment(seg);
+                }
+                ok
+            }
+        }
+    }
+
+    /// Передача предмета постройке, не являющейся конвейером.
+    fn offer_building(&mut self, reg: &ContentRegistry, id: BuildingId, item: ItemId) -> bool {
         let Some(b) = self.buildings.get(id) else {
             return false;
         };
         let row = b.row as usize;
         match b.tag {
-            KindTag::Conveyor => {
-                let dir = b.rot;
-                if target.step(dir) == from {
-                    return false; // лента смотрит на источник
-                }
-                let Some(cr) = self.conveyors.rows.get(row) else {
-                    return false;
-                };
-                let (s, k) = (cr.segment, cr.index as usize);
-                let behind = target.step(dir.opposite()) == from;
-                let seg = match current {
-                    Some((cur, seg)) if cur == s => seg,
-                    _ => match self.segments.get_mut(s as usize).and_then(Option::as_mut) {
-                        Some(seg) => seg,
-                        None => return false,
-                    },
-                };
-                if behind {
-                    seg.try_insert_behind(item, k)
-                } else {
-                    seg.try_insert_side(item, k)
-                }
-            }
             KindTag::Crafter => {
                 let BlockKind::Crafter { inputs, buffer, .. } = &reg.block(b.block).kind else {
                     return false;
@@ -758,22 +834,50 @@ impl World {
                     _ => false,
                 }
             }
-            KindTag::Drill | KindTag::Generator | KindTag::PowerNode => false,
+            KindTag::Conveyor | KindTag::Drill | KindTag::Generator | KindTag::PowerNode => false,
         }
     }
 
     /// Выгрузка одного предмета в соседние постройки по кругу.
+    /// Список получателей кэшируется до следующего изменения топологии.
     fn dump(&mut self, reg: &ContentRegistry, owner: BuildingId, item: ItemId) -> bool {
+        let epoch = self.topo_epoch;
         let Some(b) = self.buildings.get(owner) else {
             return false;
         };
-        let n = b.perimeter_len();
+        if b.dump_epoch != epoch {
+            let mut links = Vec::new();
+            for p in 0..b.perimeter_len() {
+                let (outer, inner) = b.perimeter(p);
+                let link = self.resolve_link(outer, inner);
+                if !matches!(link, Link::Nothing | Link::Refuses) {
+                    links.push(link);
+                }
+            }
+            let Some(bm) = self.buildings.get_mut(owner) else {
+                return false;
+            };
+            bm.dump_links = links;
+            bm.dump_epoch = epoch;
+        }
+        let Some(b) = self.buildings.get(owner) else {
+            return false;
+        };
+        let n = b.dump_links.len() as u32;
+        if n == 0 {
+            return false;
+        }
         let start = b.dump_cursor % n;
-        let b = b.clone();
         for i in 0..n {
             let idx = (start + i) % n;
-            let (outer, inner) = b.perimeter(idx);
-            if self.offer(reg, outer, inner, item, None) {
+            let Some(link) = self
+                .buildings
+                .get(owner)
+                .map(|b| b.dump_links[idx as usize])
+            else {
+                return false;
+            };
+            if self.deliver(reg, link, item) {
                 if let Some(bm) = self.buildings.get_mut(owner) {
                     bm.dump_cursor = (idx + 1) % n;
                 }
@@ -884,22 +988,134 @@ impl World {
     }
 
     fn update_conveyors(&mut self, reg: &ContentRegistry) {
-        for i in 0..self.segments.len() {
-            let Some(mut seg) = self.segments[i].take() else {
-                continue;
+        // Обходим только бодрствующие сегменты строго по возрастанию индекса — тот же порядок,
+        // что при обходе всех сегментов. Сегмент с большим индексом, разбуженный в этом тике,
+        // обработается в этом же тике; с меньшим — в следующем (как и без усыпления, где его
+        // ход в этом тике уже прошёл вхолостую).
+        let mut w = 0;
+        while w < self.seg_awake.len() {
+            let mut from_bit = 0u32;
+            while from_bit < 64 {
+                let bits = self.seg_awake[w] & (u64::MAX << from_bit);
+                if bits == 0 {
+                    break;
+                }
+                let bit = bits.trailing_zeros();
+                self.update_segment(reg, w * 64 + bit as usize);
+                from_bit = bit + 1;
+            }
+            w += 1;
+        }
+    }
+
+    fn update_segment(&mut self, reg: &ContentRegistry, i: usize) {
+        let Some(seg) = self.segments.get(i).and_then(Option::as_ref) else {
+            self.sleep_segment(i);
+            return;
+        };
+        let mut target = None;
+        let mut delivered = false;
+        if let Some(item) = seg.ready_front()
+            && let Some(&tail) = seg.tiles.last()
+        {
+            let link = if seg.link_epoch == self.topo_epoch {
+                seg.link
+            } else {
+                let link = self.resolve_link(tail.step(seg.out_dir), tail);
+                if let Some(sm) = self.segments.get_mut(i).and_then(Option::as_mut) {
+                    sm.link = link;
+                    sm.link_epoch = self.topo_epoch;
+                }
+                link
             };
-            if let Some(item) = seg.ready_front()
-                && let Some(&tail) = seg.tiles.last()
-            {
-                let out = tail.step(seg.out_dir);
-                // Выход в самого себя (замкнутая лента) обрабатывается через `current`.
-                if self.offer(reg, out, tail, item, Some((i as u32, &mut seg))) {
-                    seg.pop_front();
+            delivered = self.deliver(reg, link, item);
+            target = Some(link);
+        }
+        let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) else {
+            return;
+        };
+        if delivered {
+            seg.pop_front();
+        }
+        let moved = seg.advance();
+        if delivered || moved {
+            // Освободилось место: будим тех, кто ждал этот сегмент.
+            let waiters = std::mem::take(&mut seg.waiters);
+            for &wt in &waiters {
+                self.wake_segment(wt);
+            }
+            if let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) {
+                let mut waiters = waiters;
+                waiters.clear();
+                seg.waiters = waiters; // сохраняем ёмкость: без аллокаций в стационарном режиме
+            }
+            return;
+        }
+        // Ничего не изменилось: можно ли уснуть без изменения поведения?
+        let empty = seg.item_count() == 0;
+        let stuck = seg.is_fully_compressed();
+        match target {
+            None if empty => self.sleep_segment(i),
+            Some(Link::Nothing | Link::Refuses) if stuck => self.sleep_segment(i),
+            Some(Link::Segment { seg: t, .. }) if stuck && t as usize != i && !self.is_awake(t) => {
+                if let Some(ts) = self.segments.get_mut(t as usize).and_then(Option::as_mut) {
+                    if ts.waiters.last() != Some(&(i as u32)) {
+                        ts.waiters.push(i as u32);
+                    }
+                    self.sleep_segment(i);
                 }
             }
-            seg.advance();
-            self.segments[i] = Some(seg);
+            _ => {}
         }
+    }
+
+    fn is_awake(&self, s: u32) -> bool {
+        let s = s as usize;
+        self.seg_awake
+            .get(s / 64)
+            .is_some_and(|w| w & (1u64 << (s % 64)) != 0)
+    }
+
+    fn wake_segment(&mut self, s: u32) {
+        let s = s as usize;
+        if let Some(w) = self.seg_awake.get_mut(s / 64) {
+            *w |= 1u64 << (s % 64);
+        }
+    }
+
+    fn sleep_segment(&mut self, s: usize) {
+        if self.no_sleep && self.segments.get(s).is_some_and(Option::is_some) {
+            return;
+        }
+        if let Some(w) = self.seg_awake.get_mut(s / 64) {
+            *w &= !(1u64 << (s % 64));
+        }
+    }
+
+    /// Будит сегменты конвейеров, касающихся постройки (её появление/снос меняет их выход).
+    fn wake_perimeter(&mut self, b: &Building) {
+        for p in 0..b.perimeter_len() {
+            let (outer, _) = b.perimeter(p);
+            if let Some((_, _, row)) = self.conveyor_info(outer) {
+                let s = row.segment;
+                self.wake_segment(s);
+            }
+        }
+    }
+
+    /// Включает эталонный режим без усыпления сегментов (для тестов: результат обязан совпадать).
+    pub fn set_sleep_enabled(&mut self, enabled: bool) {
+        self.no_sleep = !enabled;
+        for i in 0..self.segments.len() {
+            if self.segments[i].is_some() {
+                self.wake_segment(i as u32);
+            }
+        }
+    }
+
+    /// Число бодрствующих сегментов (диагностика и бенчмарки).
+    pub fn awake_segments(&self) -> usize {
+        self.seg_awake.iter().map(|w| w.count_ones() as usize).sum()
     }
 
     // -----------------------------------------------------------------------
@@ -925,6 +1141,9 @@ impl World {
             }
         }
         Stats::bump(&mut self.stats.spawned, item, spawned);
+        for i in 0..self.segments.len() {
+            self.wake_segment(i as u32);
+        }
     }
 
     /// Проверка структурной целостности мира (после загрузки файла или в тестах).
@@ -970,6 +1189,9 @@ impl World {
             if (b.row as usize) >= len || owner != Some(&id) {
                 return Err("building table row mismatch".into());
             }
+            if b.dump_epoch > self.topo_epoch {
+                return Err("dump cache from the future".into());
+            }
             if let Some(n) = b.power_net
                 && (n as usize) >= self.power.nets.len()
             {
@@ -993,16 +1215,26 @@ impl World {
                 return Err("core storage size mismatch".into());
             }
         }
+        if self.seg_awake.len() < self.segments.len().div_ceil(64) {
+            return Err("awake bitset too short".into());
+        }
         for (i, seg) in self.segments.iter().enumerate() {
             let Some(seg) = seg else { continue };
             seg.validate()?;
+            if seg
+                .waiters
+                .iter()
+                .any(|&w| w as usize >= self.segments.len())
+            {
+                return Err("segment waiter out of range".into());
+            }
             for (k, &p) in seg.tiles.iter().enumerate() {
                 match self.conveyor_info(p) {
                     Some((_, _, row)) if row.segment as usize == i && row.index as usize == k => {}
                     _ => return Err(format!("segment {i} tile {k} inconsistent")),
                 }
             }
-            for &(item, _) in &seg.items {
+            for item in seg.items() {
                 if u32::from(item.0) >= self.item_count {
                     return Err("unknown item id".into());
                 }

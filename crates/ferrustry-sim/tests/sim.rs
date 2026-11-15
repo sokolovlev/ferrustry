@@ -243,7 +243,11 @@ fn closed_loop_circulates_forever() {
         &scenario::loop_commands(ids.conveyor, 1, 1, 10, 10),
     )
     .unwrap();
-    assert_eq!(w.segments().count(), 1);
+    // 36 тайлов режутся на сегменты не длиннее MAX_SEGMENT_TILES
+    assert_eq!(
+        w.segments().count(),
+        36usize.div_ceil(ferrustry_sim::MAX_SEGMENT_TILES)
+    );
     w.debug_fill_conveyors(ids.iron_ore, 128);
     let n: u64 = w.items_on_conveyors().iter().sum();
     assert!(n > 0);
@@ -261,6 +265,34 @@ fn closed_loop_circulates_forever() {
     assert_eq!(w.items_on_conveyors().iter().sum::<u64>(), n);
     w.validate(&reg).unwrap();
     assert_conserved(&w, &reg);
+}
+
+#[test]
+fn long_line_is_split_and_items_flow_across_pieces() {
+    let reg = reg();
+    let (mut w, ids) = empty(&reg, 128, 8);
+    for y in 0..2 {
+        for x in 0..2 {
+            w.set_ore(TilePos::new(x, y + 1), Some(ids.iron_vein));
+        }
+    }
+    let mut cmds = vec![place(ids.bore, 0, 1, Dir::Right)];
+    for x in 0..100 {
+        cmds.push(place(ids.conveyor, x, 0, Dir::Right));
+    }
+    cmds.push(place(ids.core, 100, 0, Dir::Right));
+    scenario::build(&mut w, &reg, &cmds).unwrap();
+    assert_eq!(w.segments().count(), 4);
+    assert!(
+        w.segments()
+            .all(|s| s.tiles().len() <= ferrustry_sim::MAX_SEGMENT_TILES)
+    );
+    run(&mut w, &reg, 4000);
+    // путь 100 тайлов = 1600 тиков; добыто 100 предметов
+    let delivered = w.core_items(TilePos::new(100, 0)).unwrap()[idx(ids.iron_ore)];
+    assert!(delivered >= 55, "delivered {delivered}");
+    assert_conserved(&w, &reg);
+    w.validate(&reg).unwrap();
 }
 
 #[test]
@@ -401,6 +433,71 @@ fn simulation_is_deterministic() {
     assert_ne!(state_hash(&a), state_hash(&b));
 }
 
+/// Наблюдаемое состояние: всё, кроме служебных структур планировщика.
+type Observable = (Vec<u64>, Vec<u64>, Vec<u64>, Vec<(TilePos, u16, u32)>);
+
+fn observable(w: &World) -> Observable {
+    let mut items = Vec::new();
+    for seg in w.segments() {
+        let tail = *seg.tiles().last().unwrap();
+        for (item, pos) in seg.item_positions() {
+            items.push((tail, item.0, pos));
+        }
+    }
+    items.sort();
+    (
+        w.stats().produced.clone(),
+        w.stats().destroyed.clone(),
+        w.total_core_items(),
+        items,
+    )
+}
+
+fn assert_sleep_is_transparent(mut a: World, reg: &ContentRegistry, ticks: u32) {
+    let mut b = a.clone();
+    b.set_sleep_enabled(false);
+    for t in 0..ticks {
+        a.step(reg);
+        b.step(reg);
+        if t % 50 == 0 {
+            assert_eq!(observable(&a), observable(&b), "diverged at tick {t}");
+        }
+    }
+    assert_eq!(observable(&a), observable(&b));
+    a.validate(reg).unwrap();
+}
+
+#[test]
+fn sleeping_does_not_change_behavior() {
+    let reg = reg();
+    assert_sleep_is_transparent(scenario::bench_combs(&reg, 2_000).unwrap(), &reg, 3000);
+    assert_sleep_is_transparent(
+        scenario::bench_blocked_lines(&reg, 1_000).unwrap(),
+        &reg,
+        500,
+    );
+    assert_sleep_is_transparent(scenario::vertical_slice(&reg).unwrap().0, &reg, 3000);
+    assert_sleep_is_transparent(smelter_setup(&reg, 1), &reg, 2000);
+}
+
+#[test]
+fn blocked_belts_fall_asleep_and_wake_on_unblock() {
+    let reg = reg();
+    let ids = BaseIds::resolve(&reg).unwrap();
+    let mut w = scenario::bench_blocked_lines(&reg, 1_000).unwrap();
+    for _ in 0..10 {
+        w.step(&reg);
+    }
+    assert_eq!(w.awake_segments(), 0, "all blocked belts must sleep");
+    // поставить ядро в тупике первой ленты — она и её хвост просыпаются и едут
+    w.apply(&reg, &place(ids.core, 100, 0, Dir::Right)).unwrap();
+    for _ in 0..200 {
+        w.step(&reg);
+    }
+    assert!(w.core_items(TilePos::new(100, 0)).unwrap()[idx(ids.iron_ore)] > 0);
+    assert_conserved(&w, &reg);
+}
+
 /// Случайная стройка и снос: инварианты держатся, результат воспроизводим.
 fn random_build(seed: u64) -> (u64, World) {
     let reg = reg();
@@ -422,6 +519,8 @@ fn random_build(seed: u64) -> (u64, World) {
         ids.wind_turbine,
     ];
     let mut rng = Rng::new(seed);
+    let mut twin = w.clone();
+    twin.set_sleep_enabled(false);
     for t in 0..3000u32 {
         let mut cmds = Vec::new();
         if t % 3 == 0 {
@@ -437,10 +536,17 @@ fn random_build(seed: u64) -> (u64, World) {
                 });
             }
         }
-        w.tick(&reg, &cmds);
+        let ra = w.tick(&reg, &cmds);
+        let rb = twin.tick(&reg, &cmds);
+        assert_eq!(ra, rb);
         if t % 100 == 0 {
             w.validate(&reg).unwrap();
             assert_conserved(&w, &reg);
+            assert_eq!(
+                observable(&w),
+                observable(&twin),
+                "sleep changed behavior, seed {seed} tick {t}"
+            );
         }
     }
     w.validate(&reg).unwrap();

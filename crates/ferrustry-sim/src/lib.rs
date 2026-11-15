@@ -18,4 +18,4 @@ mod world;
 pub use buildings::{Building, BuildingId, KindTag};
 pub use geom::{Dir, TilePos};
 pub use hash::state_hash;
-pub use world::{Command, CommandError, Stats, TICKS_PER_SECOND, World};
+pub use world::{Command, CommandError, MAX_SEGMENT_TILES, Stats, TICKS_PER_SECOND, World};

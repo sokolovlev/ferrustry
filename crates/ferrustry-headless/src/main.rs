@@ -20,7 +20,7 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless run [--ticks N] [--save FILE]   вертикальный срез, сводка
   ferrustry-headless resume FILE [--ticks N]          продолжить сохранение
   ferrustry-headless save-check [--ticks N]           save → load → сравнить продолжение
-  ferrustry-headless bench <b1|b2> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
+  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
 ";
 
 struct Args {
@@ -204,6 +204,7 @@ struct Report {
     measured_ticks: u64,
     buildings: usize,
     conveyor_segments: usize,
+    awake_segments: usize,
     items_on_conveyors: u64,
     setup_ms: f64,
     tick: TickStats,
@@ -220,14 +221,18 @@ fn bench(
     warmup: u64,
     conveyors: u64,
 ) -> Result<Report, String> {
+    let n = u32::try_from(conveyors).map_err(|e| e.to_string())?;
     let setup = Instant::now();
     let mut w = match name {
         "b1" => scenario::bench_empty(reg),
-        "b2" => scenario::bench_conveyor_loops(
-            reg,
-            u32::try_from(conveyors).map_err(|e| e.to_string())?,
-        ),
-        other => return Err(format!("unknown benchmark `{other}` (available: b1, b2)")),
+        "b2" => scenario::bench_conveyor_loops(reg, n),
+        "b2-blocked" => scenario::bench_blocked_lines(reg, n),
+        "b2-comb" => scenario::bench_combs(reg, n),
+        other => {
+            return Err(format!(
+                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb)"
+            ));
+        }
     }
     .map_err(|e| e.to_string())?;
     let setup_ms = setup.elapsed().as_secs_f64() * 1e3;
@@ -271,6 +276,7 @@ fn bench(
         measured_ticks: ticks,
         buildings: w.buildings().len(),
         conveyor_segments: w.segments().count(),
+        awake_segments: w.awake_segments(),
         items_on_conveyors: w.items_on_conveyors().iter().sum(),
         setup_ms,
         tick: TickStats {

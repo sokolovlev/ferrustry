@@ -30,11 +30,12 @@ jobs:
       - run: cargo build --workspace --release
       - name: Determinism and save check
         run: cargo run --release -p ferrustry-headless -- save-check
-      - name: Benchmark smoke run (B1, B2-10k)
+      - name: Benchmark smoke run (B1, B2, B2-comb)
         shell: bash
         run: |
           cargo run --release -p ferrustry-headless -- bench b1 --ticks 1000 --out bench-b1-${{ matrix.os }}.json
           cargo run --release -p ferrustry-headless -- bench b2 --ticks 1000 --out bench-b2-${{ matrix.os }}.json
+          cargo run --release -p ferrustry-headless -- bench b2-comb --ticks 1000 --out bench-b2-comb-${{ matrix.os }}.json
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.os }}

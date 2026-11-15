@@ -175,3 +175,61 @@ pub fn bench_conveyor_loops(reg: &ContentRegistry, conveyors: u32) -> Result<Wor
     w.debug_fill_conveyors(ids.iron_ore, 2 * crate::segment::ITEM_SPACING);
     Ok(w)
 }
+
+/// B2-blocked: прямые ленты по 100 тайлов, упирающиеся в пустоту и забитые полностью.
+pub fn bench_blocked_lines(reg: &ContentRegistry, conveyors: u32) -> Result<World, ScenarioError> {
+    let ids = BaseIds::resolve(reg)?;
+    let len = 100;
+    let lines = conveyors.div_ceil(len as u32) as i32;
+    let mut w = World::new(reg, (len + 4) as u32, (lines * 2 + 2) as u32, ids.basalt, 1);
+    for l in 0..lines {
+        let cmds: Vec<_> = (0..len)
+            .map(|x| place(ids.conveyor, x, l * 2, Dir::Right))
+            .collect();
+        build(&mut w, reg, &cmds)?;
+    }
+    w.debug_fill_conveyors(ids.iron_ore, crate::segment::ITEM_SPACING);
+    Ok(w)
+}
+
+/// B2-comb: «гребёнки» — основная лента длиной 99 в ядро и ветки по 6 тайлов через каждые
+/// 3 тайла, питаемые бурами и вливающиеся в основную ленту сбоку. Основная лента насыщается,
+/// ветки частично блокируются — смесь движения и заторов, типичная для реальной базы.
+pub fn bench_combs(reg: &ContentRegistry, conveyors: u32) -> Result<World, ScenarioError> {
+    let ids = BaseIds::resolve(reg)?;
+    let main_len = 99;
+    let branch_len = 6;
+    let branches = main_len / 3;
+    let per_comb = (main_len + branches * branch_len) as u32;
+    let combs = conveyors.div_ceil(per_comb) as i32;
+    let pitch = 11;
+    let mut w = World::new(
+        reg,
+        (main_len + 4) as u32,
+        (combs * pitch + 2) as u32,
+        ids.basalt,
+        1,
+    );
+    for c in 0..combs {
+        let y = c * pitch + 9; // основная лента
+        let mut cmds: Vec<_> = (0..main_len)
+            .map(|x| place(ids.conveyor, x, y, Dir::Right))
+            .collect();
+        cmds.push(place(ids.core, main_len, y - 1, Dir::Right));
+        for b in 0..branches {
+            let bx = b * 3;
+            for k in 0..branch_len {
+                cmds.push(place(ids.conveyor, bx, y - branch_len + k, Dir::Up));
+            }
+            let by = y - branch_len - 2;
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    w.set_ore(TilePos::new(bx + dx, by + dy), Some(ids.iron_vein));
+                }
+            }
+            cmds.push(place(ids.bore, bx, by, Dir::Right));
+        }
+        build(&mut w, reg, &cmds)?;
+    }
+    Ok(w)
+}
