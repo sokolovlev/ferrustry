@@ -1,0 +1,1035 @@
+//! Состояние мира и игровой тик.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use ferrustry_content::{BlockId, BlockKind, ContentRegistry, FloorId, ItemId, OreId};
+use serde::{Deserialize, Serialize};
+
+use crate::buildings::{Arena, Building, BuildingId, KindTag, Table};
+use crate::geom::{Dir, TilePos};
+use crate::grid::Grid;
+use crate::power::PowerState;
+use crate::rng::Rng;
+use crate::segment::{Segment, TILE_LEN};
+
+/// Частота симуляции (решение D-03).
+pub const TICKS_PER_SECOND: u32 = 30;
+
+/// Команда игрока — единственный способ изменить мир извне.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Command {
+    /// Поставить постройку; `origin` — левый нижний тайл.
+    Place {
+        /// Тип постройки.
+        block: BlockId,
+        /// Левый нижний тайл.
+        origin: TilePos,
+        /// Поворот.
+        rot: Dir,
+    },
+    /// Снести постройку, занимающую тайл.
+    Remove {
+        /// Любой тайл постройки.
+        at: TilePos,
+    },
+}
+
+/// Причина отклонения команды.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CommandError {
+    /// Неизвестный тип постройки.
+    #[error("unknown block")]
+    UnknownBlock,
+    /// Постройка выходит за пределы карты.
+    #[error("out of bounds")]
+    OutOfBounds,
+    /// Тайл уже занят.
+    #[error("tile occupied")]
+    Occupied,
+    /// На этом полу нельзя строить.
+    #[error("floor is not buildable")]
+    NotBuildable,
+    /// На тайле нет постройки.
+    #[error("nothing to remove")]
+    NothingThere,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ConveyorRow {
+    pub(crate) segment: u32,
+    pub(crate) index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct DrillRow {
+    pub(crate) item: Option<ItemId>,
+    pub(crate) ore_tiles: u32,
+    pub(crate) progress: u32,
+    pub(crate) buffer: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CrafterRow {
+    pub(crate) inputs: Vec<u32>,
+    pub(crate) outputs: Vec<u32>,
+    /// Прогресс в тысячных долях тика при полной энергии.
+    pub(crate) progress: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CoreRow {
+    pub(crate) items: Vec<u32>,
+}
+
+/// Счётчики ресурсов (для тестов, отладки и баланса).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stats {
+    /// Добыто и произведено.
+    pub produced: Vec<u64>,
+    /// Израсходовано рецептами.
+    pub consumed: Vec<u64>,
+    /// Уничтожено (снос построек и т. п.).
+    pub destroyed: Vec<u64>,
+    /// Создано отладочными/бенчмарк-инструментами.
+    pub spawned: Vec<u64>,
+}
+
+impl Stats {
+    fn new(items: usize) -> Self {
+        Self {
+            produced: vec![0; items],
+            consumed: vec![0; items],
+            destroyed: vec![0; items],
+            spawned: vec![0; items],
+        }
+    }
+
+    fn bump(v: &mut [u64], item: ItemId, n: u64) {
+        if let Some(c) = v.get_mut(usize::from(item.0)) {
+            *c += n;
+        }
+    }
+}
+
+/// Полное состояние симуляции.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct World {
+    tick: u64,
+    item_count: u32,
+    pub(crate) grid: Grid,
+    pub(crate) buildings: Arena,
+    pub(crate) conveyors: Table<ConveyorRow>,
+    pub(crate) drills: Table<DrillRow>,
+    pub(crate) crafters: Table<CrafterRow>,
+    pub(crate) generators: Table<()>,
+    pub(crate) nodes: Table<()>,
+    pub(crate) cores: Table<CoreRow>,
+    pub(crate) segments: Vec<Option<Segment>>,
+    free_segments: Vec<u32>,
+    pub(crate) power: PowerState,
+    rng: Rng,
+    stats: Stats,
+}
+
+const NO_SEGMENT: u32 = u32::MAX;
+
+impl World {
+    /// Создаёт пустой мир, залитый одним полом.
+    pub fn new(reg: &ContentRegistry, width: u32, height: u32, floor: FloorId, seed: u64) -> Self {
+        let items = reg.items().len();
+        Self {
+            tick: 0,
+            item_count: u32::try_from(items).unwrap_or(u32::MAX),
+            grid: Grid::new(width, height, floor),
+            buildings: Arena::default(),
+            conveyors: Table::default(),
+            drills: Table::default(),
+            crafters: Table::default(),
+            generators: Table::default(),
+            nodes: Table::default(),
+            cores: Table::default(),
+            segments: Vec::new(),
+            free_segments: Vec::new(),
+            power: PowerState::default(),
+            rng: Rng::new(seed),
+            stats: Stats::new(items),
+        }
+    }
+
+    /// Номер текущего тика.
+    pub fn tick_count(&self) -> u64 {
+        self.tick
+    }
+
+    /// Сетка мира.
+    pub fn grid(&self) -> &Grid {
+        &self.grid
+    }
+
+    /// Постройки.
+    pub fn buildings(&self) -> &Arena {
+        &self.buildings
+    }
+
+    /// Счётчики ресурсов.
+    pub fn stats(&self) -> &Stats {
+        &self.stats
+    }
+
+    /// ГПСЧ мира (для генерации и будущих систем).
+    pub fn rng_mut(&mut self) -> &mut Rng {
+        &mut self.rng
+    }
+
+    /// Активные сегменты конвейеров.
+    pub fn segments(&self) -> impl Iterator<Item = &Segment> {
+        self.segments.iter().flatten()
+    }
+
+    /// Задать пол тайла (генерация карты).
+    pub fn set_floor(&mut self, p: TilePos, floor: FloorId) {
+        self.grid.set_floor(p, floor);
+    }
+
+    /// Задать руду тайла (генерация карты).
+    pub fn set_ore(&mut self, p: TilePos, ore: Option<OreId>) {
+        self.grid.set_ore(p, ore);
+    }
+
+    /// Содержимое ядра, которому принадлежит тайл.
+    pub fn core_items(&self, at: TilePos) -> Option<&[u32]> {
+        let id = self.grid.building(at)?;
+        let b = self.buildings.get(id)?;
+        (b.tag == KindTag::Core).then(|| {
+            self.cores
+                .rows
+                .get(b.row as usize)
+                .map(|r| r.items.as_slice())
+        })?
+    }
+
+    /// Сумма ресурсов во всех ядрах.
+    pub fn total_core_items(&self) -> Vec<u64> {
+        let mut total = vec![0u64; self.item_count as usize];
+        for row in &self.cores.rows {
+            for (t, &n) in total.iter_mut().zip(&row.items) {
+                *t += u64::from(n);
+            }
+        }
+        total
+    }
+
+    /// Число предметов каждого вида, находящихся на конвейерах.
+    pub fn items_on_conveyors(&self) -> Vec<u64> {
+        let mut total = vec![0u64; self.item_count as usize];
+        for seg in self.segments() {
+            for &(item, _) in &seg.items {
+                if let Some(t) = total.get_mut(usize::from(item.0)) {
+                    *t += 1;
+                }
+            }
+        }
+        total
+    }
+
+    /// Число предметов каждого вида во внутренних буферах построек (буры, производства).
+    pub fn items_in_buffers(&self, reg: &ContentRegistry) -> Vec<u64> {
+        let mut total = vec![0u64; self.item_count as usize];
+        let mut add = |item: ItemId, n: u32| {
+            if let Some(t) = total.get_mut(usize::from(item.0)) {
+                *t += u64::from(n);
+            }
+        };
+        for row in &self.drills.rows {
+            if let Some(item) = row.item {
+                add(item, row.buffer);
+            }
+        }
+        for (row, owner) in self.crafters.rows.iter().zip(&self.crafters.owners) {
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            if let BlockKind::Crafter {
+                inputs, outputs, ..
+            } = &reg.block(b.block).kind
+            {
+                for (s, &n) in inputs.iter().zip(&row.inputs) {
+                    add(s.item, n);
+                }
+                for (s, &n) in outputs.iter().zip(&row.outputs) {
+                    add(s.item, n);
+                }
+            }
+        }
+        total
+    }
+
+    // -----------------------------------------------------------------------
+    // Тик
+    // -----------------------------------------------------------------------
+
+    /// Выполняет один тик: применяет команды по порядку, затем все системы.
+    /// Возвращает результат каждой команды.
+    pub fn tick(
+        &mut self,
+        reg: &ContentRegistry,
+        commands: &[Command],
+    ) -> Vec<Result<(), CommandError>> {
+        let results = commands.iter().map(|c| self.apply(reg, c)).collect();
+        self.step(reg);
+        results
+    }
+
+    /// Выполняет один тик без команд (не выделяет память в стационарном режиме).
+    pub fn step(&mut self, reg: &ContentRegistry) {
+        if self.power.dirty {
+            self.rebuild_power(reg);
+        }
+        self.balance_power(reg);
+        self.update_drills(reg);
+        self.update_crafters(reg);
+        self.update_conveyors(reg);
+        self.tick += 1;
+    }
+
+    /// Применяет одну команду немедленно.
+    pub fn apply(&mut self, reg: &ContentRegistry, cmd: &Command) -> Result<(), CommandError> {
+        match *cmd {
+            Command::Place { block, origin, rot } => {
+                self.place(reg, block, origin, rot).map(|_| ())
+            }
+            Command::Remove { at } => self.remove(reg, at),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Строительство
+    // -----------------------------------------------------------------------
+
+    fn place(
+        &mut self,
+        reg: &ContentRegistry,
+        block: BlockId,
+        origin: TilePos,
+        rot: Dir,
+    ) -> Result<BuildingId, CommandError> {
+        let def = reg
+            .blocks()
+            .get(usize::from(block.0))
+            .ok_or(CommandError::UnknownBlock)?;
+        let size = i32::from(def.size);
+        for dy in 0..size {
+            for dx in 0..size {
+                let p = TilePos::new(origin.x + dx, origin.y + dy);
+                let floor = self.grid.floor(p).ok_or(CommandError::OutOfBounds)?;
+                if !reg.floor(floor).buildable {
+                    return Err(CommandError::NotBuildable);
+                }
+                if self.grid.building(p).is_some() {
+                    return Err(CommandError::Occupied);
+                }
+            }
+        }
+
+        let tag = match def.kind {
+            BlockKind::Conveyor { .. } => KindTag::Conveyor,
+            BlockKind::Drill { .. } => KindTag::Drill,
+            BlockKind::Crafter { .. } => KindTag::Crafter,
+            BlockKind::Generator { .. } => KindTag::Generator,
+            BlockKind::PowerNode { .. } => KindTag::PowerNode,
+            BlockKind::Core { .. } => KindTag::Core,
+        };
+        let id = self.buildings.insert(Building {
+            block,
+            origin,
+            size: def.size,
+            rot,
+            tag,
+            row: 0,
+            power_net: None,
+            dump_cursor: 0,
+        });
+        for dy in 0..size {
+            for dx in 0..size {
+                self.grid
+                    .set_building(TilePos::new(origin.x + dx, origin.y + dy), Some(id));
+            }
+        }
+
+        let row = match &def.kind {
+            BlockKind::Conveyor { .. } => self.conveyors.push(
+                id,
+                ConveyorRow {
+                    segment: NO_SEGMENT,
+                    index: 0,
+                },
+            ),
+            BlockKind::Drill { .. } => {
+                let (item, ore_tiles) = self.ore_under(reg, origin, def.size);
+                self.drills.push(
+                    id,
+                    DrillRow {
+                        item,
+                        ore_tiles,
+                        progress: 0,
+                        buffer: 0,
+                    },
+                )
+            }
+            BlockKind::Crafter {
+                inputs, outputs, ..
+            } => self.crafters.push(
+                id,
+                CrafterRow {
+                    inputs: vec![0; inputs.len()],
+                    outputs: vec![0; outputs.len()],
+                    progress: 0,
+                },
+            ),
+            BlockKind::Generator { .. } => self.generators.push(id, ()),
+            BlockKind::PowerNode { .. } => self.nodes.push(id, ()),
+            BlockKind::Core { .. } => self.cores.push(
+                id,
+                CoreRow {
+                    items: vec![0; self.item_count as usize],
+                },
+            ),
+        };
+        if let Some(b) = self.buildings.get_mut(id) {
+            b.row = row;
+        }
+        if def.is_power() {
+            self.power.dirty = true;
+        }
+        if tag == KindTag::Conveyor {
+            self.rebuild_conveyors_around(reg, origin, &[]);
+        }
+        Ok(id)
+    }
+
+    /// Самая распространённая руда под постройкой (при равенстве — меньший ID ресурса).
+    fn ore_under(&self, reg: &ContentRegistry, origin: TilePos, size: u8) -> (Option<ItemId>, u32) {
+        let mut counts: BTreeMap<ItemId, u32> = BTreeMap::new();
+        let s = i32::from(size);
+        for dy in 0..s {
+            for dx in 0..s {
+                if let Some(ore) = self.grid.ore(TilePos::new(origin.x + dx, origin.y + dy)) {
+                    *counts.entry(reg.ore(ore).item).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut best: Option<(ItemId, u32)> = None;
+        for (item, n) in counts {
+            if best.is_none_or(|(_, b)| n > b) {
+                best = Some((item, n));
+            }
+        }
+        match best {
+            Some((item, n)) => (Some(item), n),
+            None => (None, 0),
+        }
+    }
+
+    fn remove(&mut self, reg: &ContentRegistry, at: TilePos) -> Result<(), CommandError> {
+        let id = self.grid.building(at).ok_or(CommandError::NothingThere)?;
+        let b = self
+            .buildings
+            .remove(id)
+            .ok_or(CommandError::NothingThere)?;
+        let s = i32::from(b.size);
+        for dy in 0..s {
+            for dx in 0..s {
+                self.grid
+                    .set_building(TilePos::new(b.origin.x + dx, b.origin.y + dy), None);
+            }
+        }
+        let def = reg.block(b.block);
+        if def.is_power() {
+            self.power.dirty = true;
+        }
+        let mut old_segment = None;
+        let moved = match b.tag {
+            KindTag::Conveyor => self.conveyors.swap_remove(b.row).map(|(row, m)| {
+                old_segment = Some(row.segment);
+                m
+            }),
+            KindTag::Drill => self.drills.swap_remove(b.row).map(|(row, m)| {
+                if let Some(item) = row.item {
+                    Stats::bump(&mut self.stats.destroyed, item, u64::from(row.buffer));
+                }
+                m
+            }),
+            KindTag::Crafter => self.crafters.swap_remove(b.row).map(|(row, m)| {
+                if let BlockKind::Crafter {
+                    inputs, outputs, ..
+                } = &def.kind
+                {
+                    for (st, &n) in inputs
+                        .iter()
+                        .zip(&row.inputs)
+                        .chain(outputs.iter().zip(&row.outputs))
+                    {
+                        Stats::bump(&mut self.stats.destroyed, st.item, u64::from(n));
+                    }
+                }
+                m
+            }),
+            KindTag::Generator => self.generators.swap_remove(b.row).map(|(_, m)| m),
+            KindTag::PowerNode => self.nodes.swap_remove(b.row).map(|(_, m)| m),
+            KindTag::Core => self.cores.swap_remove(b.row).map(|(row, m)| {
+                for (i, &n) in row.items.iter().enumerate() {
+                    Stats::bump(&mut self.stats.destroyed, ItemId(i as u16), u64::from(n));
+                }
+                m
+            }),
+        };
+        if let Some(Some(moved)) = moved
+            && let Some(mb) = self.buildings.get_mut(moved)
+        {
+            mb.row = b.row;
+        }
+        if let Some(seg) = old_segment {
+            self.rebuild_conveyors_around(reg, at, &[seg]);
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Конвейеры: построение сегментов
+    // -----------------------------------------------------------------------
+
+    fn conveyor_info(&self, p: TilePos) -> Option<(BlockId, Dir, &ConveyorRow)> {
+        let id = self.grid.building(p)?;
+        let b = self.buildings.get(id)?;
+        if b.tag != KindTag::Conveyor {
+            return None;
+        }
+        Some((b.block, b.rot, self.conveyors.rows.get(b.row as usize)?))
+    }
+
+    fn conveyor_row_mut(&mut self, p: TilePos) -> Option<&mut ConveyorRow> {
+        let id = self.grid.building(p)?;
+        let b = self.buildings.get(id)?;
+        if b.tag != KindTag::Conveyor {
+            return None;
+        }
+        self.conveyors.rows.get_mut(b.row as usize)
+    }
+
+    /// Основной предшественник конвейера: тот, что стоит сзади и смотрит в него; если сзади
+    /// никого нет — единственный боковой (поворот ленты). Только того же типа.
+    fn primary_pred(&self, p: TilePos) -> Option<TilePos> {
+        let (block, dir, _) = self.conveyor_info(p)?;
+        let feeds = |q: TilePos| {
+            self.conveyor_info(q)
+                .is_some_and(|(b, d, _)| b == block && q.step(d) == p)
+        };
+        let behind = p.step(dir.opposite());
+        if feeds(behind) {
+            return Some(behind);
+        }
+        let mut side = None;
+        for d in [rot_left(dir), rot_right(dir)] {
+            let q = p.step(d);
+            if feeds(q) {
+                if side.is_some() {
+                    return None;
+                }
+                side = Some(q);
+            }
+        }
+        side
+    }
+
+    fn alloc_segment(&mut self, seg: Segment) -> u32 {
+        if let Some(i) = self.free_segments.pop() {
+            self.segments[i as usize] = Some(seg);
+            i
+        } else {
+            self.segments.push(Some(seg));
+            u32::try_from(self.segments.len() - 1).unwrap_or(NO_SEGMENT)
+        }
+    }
+
+    /// Перестраивает сегменты, затронутые изменением тайла `around`, сохраняя предметы.
+    fn rebuild_conveyors_around(&mut self, reg: &ContentRegistry, around: TilePos, extra: &[u32]) {
+        let mut dissolve: BTreeSet<u32> =
+            extra.iter().copied().filter(|&s| s != NO_SEGMENT).collect();
+        let mut tiles: BTreeSet<TilePos> = BTreeSet::new();
+        for p in std::iter::once(around).chain(around.neighbors()) {
+            if let Some((_, _, row)) = self.conveyor_info(p) {
+                if row.segment != NO_SEGMENT {
+                    dissolve.insert(row.segment);
+                } else {
+                    tiles.insert(p);
+                }
+            }
+        }
+
+        // Разобрать сегменты, запомнив предметы по тайлам.
+        let mut tile_items: BTreeMap<TilePos, Vec<(ItemId, u32)>> = BTreeMap::new();
+        for s in dissolve {
+            let Some(mut seg) = self.segments.get_mut(s as usize).and_then(Option::take) else {
+                continue;
+            };
+            self.free_segments.push(s);
+            let seg_tiles = std::mem::take(&mut seg.tiles);
+            seg.tiles.clone_from(&seg_tiles);
+            seg.drain_by_tile(|k, item, off| {
+                tile_items
+                    .entry(seg_tiles[k])
+                    .or_default()
+                    .push((item, off))
+            });
+            tiles.extend(seg_tiles);
+        }
+
+        // Тайлы, которые больше не конвейеры: предметы уничтожаются.
+        tiles.retain(|&p| self.conveyor_info(p).is_some());
+        let lost: Vec<(TilePos, Vec<(ItemId, u32)>)> = tile_items
+            .iter()
+            .filter(|(p, _)| !tiles.contains(p))
+            .map(|(p, v)| (*p, v.clone()))
+            .collect();
+        for (p, v) in lost {
+            tile_items.remove(&p);
+            for (item, _) in v {
+                Stats::bump(&mut self.stats.destroyed, item, 1);
+            }
+        }
+
+        // Построить цепочки: сначала от «голов», затем оставшиеся циклы.
+        let mut visited: BTreeSet<TilePos> = BTreeSet::new();
+        let heads: Vec<TilePos> = tiles
+            .iter()
+            .copied()
+            .filter(|&p| self.primary_pred(p).is_none_or(|q| !tiles.contains(&q)))
+            .collect();
+        for h in heads {
+            self.build_chain(reg, h, &tiles, &mut visited, &mut tile_items);
+        }
+        let rest: Vec<TilePos> = tiles
+            .iter()
+            .copied()
+            .filter(|p| !visited.contains(p))
+            .collect();
+        for p in rest {
+            if !visited.contains(&p) {
+                self.build_chain(reg, p, &tiles, &mut visited, &mut tile_items);
+            }
+        }
+    }
+
+    fn build_chain(
+        &mut self,
+        reg: &ContentRegistry,
+        head: TilePos,
+        tiles: &BTreeSet<TilePos>,
+        visited: &mut BTreeSet<TilePos>,
+        tile_items: &mut BTreeMap<TilePos, Vec<(ItemId, u32)>>,
+    ) {
+        let Some((block, mut dir, _)) = self.conveyor_info(head) else {
+            return;
+        };
+        let mut chain = vec![head];
+        visited.insert(head);
+        let mut cur = head;
+        loop {
+            let next = cur.step(dir);
+            if !tiles.contains(&next)
+                || visited.contains(&next)
+                || self.primary_pred(next) != Some(cur)
+            {
+                break;
+            }
+            let Some((_, d, _)) = self.conveyor_info(next) else {
+                break;
+            };
+            visited.insert(next);
+            chain.push(next);
+            cur = next;
+            dir = d;
+        }
+        let speed = match reg.block(block).kind {
+            BlockKind::Conveyor { speed } => speed,
+            _ => 1,
+        };
+        let l = chain.len();
+        let mut items: Vec<(ItemId, u32)> = Vec::new();
+        for (k, p) in chain.iter().enumerate() {
+            if let Some(v) = tile_items.remove(p) {
+                for (item, off) in v {
+                    items.push((item, (l - 1 - k) as u32 * TILE_LEN + off));
+                }
+            }
+        }
+        items.sort_by_key(|&(_, pos)| pos);
+        let mut seg = Segment::new(chain.clone(), dir, speed);
+        let lost = seg.fill_sorted(items.iter().copied());
+        if lost > 0 {
+            // предметы, не поместившиеся при слиянии, уничтожаются (крайний случай)
+            for &(item, _) in items.iter().rev().take(lost as usize) {
+                Stats::bump(&mut self.stats.destroyed, item, 1);
+            }
+        }
+        let s = self.alloc_segment(seg);
+        for (k, p) in chain.iter().enumerate() {
+            if let Some(row) = self.conveyor_row_mut(*p) {
+                row.segment = s;
+                row.index = k as u32;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Передача предметов
+    // -----------------------------------------------------------------------
+
+    /// Предлагает предмет постройке на тайле `target` от соседнего тайла `from`.
+    /// `current` — сегмент, который сейчас извлечён из списка (выход самого себя в цикле).
+    fn offer(
+        &mut self,
+        reg: &ContentRegistry,
+        target: TilePos,
+        from: TilePos,
+        item: ItemId,
+        current: Option<(u32, &mut Segment)>,
+    ) -> bool {
+        let Some(id) = self.grid.building(target) else {
+            return false;
+        };
+        let Some(b) = self.buildings.get(id) else {
+            return false;
+        };
+        let row = b.row as usize;
+        match b.tag {
+            KindTag::Conveyor => {
+                let dir = b.rot;
+                if target.step(dir) == from {
+                    return false; // лента смотрит на источник
+                }
+                let Some(cr) = self.conveyors.rows.get(row) else {
+                    return false;
+                };
+                let (s, k) = (cr.segment, cr.index as usize);
+                let behind = target.step(dir.opposite()) == from;
+                let seg = match current {
+                    Some((cur, seg)) if cur == s => seg,
+                    _ => match self.segments.get_mut(s as usize).and_then(Option::as_mut) {
+                        Some(seg) => seg,
+                        None => return false,
+                    },
+                };
+                if behind {
+                    seg.try_insert_behind(item, k)
+                } else {
+                    seg.try_insert_side(item, k)
+                }
+            }
+            KindTag::Crafter => {
+                let BlockKind::Crafter { inputs, buffer, .. } = &reg.block(b.block).kind else {
+                    return false;
+                };
+                let Some(slot) = inputs.iter().position(|s| s.item == item) else {
+                    return false;
+                };
+                let Some(cr) = self.crafters.rows.get_mut(row) else {
+                    return false;
+                };
+                if cr.inputs[slot] < *buffer {
+                    cr.inputs[slot] += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            KindTag::Core => {
+                let BlockKind::Core { capacity } = reg.block(b.block).kind else {
+                    return false;
+                };
+                let Some(core) = self.cores.rows.get_mut(row) else {
+                    return false;
+                };
+                match core.items.get_mut(usize::from(item.0)) {
+                    Some(n) if *n < capacity => {
+                        *n += 1;
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            KindTag::Drill | KindTag::Generator | KindTag::PowerNode => false,
+        }
+    }
+
+    /// Выгрузка одного предмета в соседние постройки по кругу.
+    fn dump(&mut self, reg: &ContentRegistry, owner: BuildingId, item: ItemId) -> bool {
+        let Some(b) = self.buildings.get(owner) else {
+            return false;
+        };
+        let n = b.perimeter_len();
+        let start = b.dump_cursor % n;
+        let b = b.clone();
+        for i in 0..n {
+            let idx = (start + i) % n;
+            let (outer, inner) = b.perimeter(idx);
+            if self.offer(reg, outer, inner, item, None) {
+                if let Some(bm) = self.buildings.get_mut(owner) {
+                    bm.dump_cursor = (idx + 1) % n;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    // -----------------------------------------------------------------------
+    // Системы
+    // -----------------------------------------------------------------------
+
+    fn update_drills(&mut self, reg: &ContentRegistry) {
+        for r in 0..self.drills.len() {
+            let owner = self.drills.owners[r];
+            let Some(b) = self.buildings.get(owner) else {
+                continue;
+            };
+            let BlockKind::Drill { base_ticks, buffer } = reg.block(b.block).kind else {
+                continue;
+            };
+            let threshold = base_ticks * u32::from(b.size) * u32::from(b.size);
+            let row = &mut self.drills.rows[r];
+            let Some(item) = row.item else { continue };
+            if row.buffer < buffer {
+                row.progress += row.ore_tiles;
+                if row.progress >= threshold {
+                    row.progress -= threshold;
+                    row.buffer += 1;
+                    Stats::bump(&mut self.stats.produced, item, 1);
+                }
+            }
+            if self.drills.rows[r].buffer > 0 && self.dump(reg, owner, item) {
+                self.drills.rows[r].buffer -= 1;
+            }
+        }
+    }
+
+    /// Может ли производство сейчас работать (есть входы и место под выходы).
+    pub(crate) fn crafter_ready(reg: &ContentRegistry, block: BlockId, row: &CrafterRow) -> bool {
+        let BlockKind::Crafter {
+            inputs,
+            outputs,
+            buffer,
+            ..
+        } = &reg.block(block).kind
+        else {
+            return false;
+        };
+        inputs.iter().zip(&row.inputs).all(|(s, &n)| n >= s.count)
+            && outputs
+                .iter()
+                .zip(&row.outputs)
+                .all(|(s, &n)| n + s.count <= *buffer)
+    }
+
+    fn update_crafters(&mut self, reg: &ContentRegistry) {
+        for r in 0..self.crafters.len() {
+            let owner = self.crafters.owners[r];
+            let Some(b) = self.buildings.get(owner) else {
+                continue;
+            };
+            let block = b.block;
+            let net = b.power_net;
+            let BlockKind::Crafter {
+                inputs,
+                outputs,
+                craft_ticks,
+                power_use,
+                ..
+            } = &reg.block(block).kind
+            else {
+                continue;
+            };
+
+            if Self::crafter_ready(reg, block, &self.crafters.rows[r]) {
+                let sat = if *power_use == 0 {
+                    1000
+                } else {
+                    net.and_then(|n| self.power.nets.get(n as usize))
+                        .map_or(0, |n| n.satisfaction)
+                };
+                let row = &mut self.crafters.rows[r];
+                row.progress += u64::from(sat);
+                let need = u64::from(*craft_ticks) * 1000;
+                if row.progress >= need {
+                    row.progress -= need;
+                    for (s, n) in inputs.iter().zip(row.inputs.iter_mut()) {
+                        *n -= s.count;
+                        Stats::bump(&mut self.stats.consumed, s.item, u64::from(s.count));
+                    }
+                    for (s, n) in outputs.iter().zip(row.outputs.iter_mut()) {
+                        *n += s.count;
+                        Stats::bump(&mut self.stats.produced, s.item, u64::from(s.count));
+                    }
+                }
+            }
+
+            // выгрузить один предмет за тик
+            for (slot, s) in outputs.iter().enumerate() {
+                if self.crafters.rows[r].outputs[slot] > 0 && self.dump(reg, owner, s.item) {
+                    self.crafters.rows[r].outputs[slot] -= 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    fn update_conveyors(&mut self, reg: &ContentRegistry) {
+        for i in 0..self.segments.len() {
+            let Some(mut seg) = self.segments[i].take() else {
+                continue;
+            };
+            if let Some(item) = seg.ready_front()
+                && let Some(&tail) = seg.tiles.last()
+            {
+                let out = tail.step(seg.out_dir);
+                // Выход в самого себя (замкнутая лента) обрабатывается через `current`.
+                if self.offer(reg, out, tail, item, Some((i as u32, &mut seg))) {
+                    seg.pop_front();
+                }
+            }
+            seg.advance();
+            self.segments[i] = Some(seg);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Отладка и бенчмарки
+    // -----------------------------------------------------------------------
+
+    /// Заполняет все конвейеры предметом с шагом `spacing` единиц (только для тестов и бенчмарков;
+    /// предметы учитываются в `stats.spawned`).
+    pub fn debug_fill_conveyors(&mut self, item: ItemId, spacing: u32) {
+        let spacing = spacing.max(crate::segment::ITEM_SPACING);
+        let mut spawned = 0u64;
+        for seg in self.segments.iter_mut().flatten() {
+            let len = seg.len_units();
+            let mut pos = len;
+            loop {
+                if seg.try_insert_at(item, pos) {
+                    spawned += 1;
+                }
+                if pos < spacing {
+                    break;
+                }
+                pos -= spacing;
+            }
+        }
+        Stats::bump(&mut self.stats.spawned, item, spawned);
+    }
+
+    /// Проверка структурной целостности мира (после загрузки файла или в тестах).
+    pub fn validate(&self, reg: &ContentRegistry) -> Result<(), String> {
+        self.grid.validate()?;
+        if self.item_count as usize != reg.items().len() {
+            return Err("item count does not match content".into());
+        }
+        for (id, b) in self.buildings.iter() {
+            if usize::from(b.block.0) >= reg.blocks().len() {
+                return Err("unknown block id".into());
+            }
+            let def = reg.block(b.block);
+            if def.size != b.size {
+                return Err("building size does not match block".into());
+            }
+            let s = i32::from(b.size);
+            for dy in 0..s {
+                for dx in 0..s {
+                    let p = TilePos::new(b.origin.x + dx, b.origin.y + dy);
+                    if self.grid.building(p) != Some(id) {
+                        return Err(format!("tile {p:?} does not reference its building"));
+                    }
+                }
+            }
+            let (len, owner) = match b.tag {
+                KindTag::Conveyor => (
+                    self.conveyors.len(),
+                    self.conveyors.owners.get(b.row as usize),
+                ),
+                KindTag::Drill => (self.drills.len(), self.drills.owners.get(b.row as usize)),
+                KindTag::Crafter => (
+                    self.crafters.len(),
+                    self.crafters.owners.get(b.row as usize),
+                ),
+                KindTag::Generator => (
+                    self.generators.len(),
+                    self.generators.owners.get(b.row as usize),
+                ),
+                KindTag::PowerNode => (self.nodes.len(), self.nodes.owners.get(b.row as usize)),
+                KindTag::Core => (self.cores.len(), self.cores.owners.get(b.row as usize)),
+            };
+            if (b.row as usize) >= len || owner != Some(&id) {
+                return Err("building table row mismatch".into());
+            }
+            if let Some(n) = b.power_net
+                && (n as usize) >= self.power.nets.len()
+            {
+                return Err("power net out of range".into());
+            }
+            if b.tag == KindTag::Crafter {
+                let BlockKind::Crafter {
+                    inputs, outputs, ..
+                } = &def.kind
+                else {
+                    return Err("crafter kind mismatch".into());
+                };
+                let row = &self.crafters.rows[b.row as usize];
+                if row.inputs.len() != inputs.len() || row.outputs.len() != outputs.len() {
+                    return Err("crafter buffers mismatch".into());
+                }
+            }
+        }
+        for row in &self.cores.rows {
+            if row.items.len() != self.item_count as usize {
+                return Err("core storage size mismatch".into());
+            }
+        }
+        for (i, seg) in self.segments.iter().enumerate() {
+            let Some(seg) = seg else { continue };
+            seg.validate()?;
+            for (k, &p) in seg.tiles.iter().enumerate() {
+                match self.conveyor_info(p) {
+                    Some((_, _, row)) if row.segment as usize == i && row.index as usize == k => {}
+                    _ => return Err(format!("segment {i} tile {k} inconsistent")),
+                }
+            }
+            for &(item, _) in &seg.items {
+                if u32::from(item.0) >= self.item_count {
+                    return Err("unknown item id".into());
+                }
+            }
+        }
+        for row in &self.conveyors.rows {
+            if self
+                .segments
+                .get(row.segment as usize)
+                .is_none_or(Option::is_none)
+            {
+                return Err("conveyor without segment".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+fn rot_left(d: Dir) -> Dir {
+    match d {
+        Dir::Right => Dir::Up,
+        Dir::Up => Dir::Left,
+        Dir::Left => Dir::Down,
+        Dir::Down => Dir::Right,
+    }
+}
+
+fn rot_right(d: Dir) -> Dir {
+    rot_left(d).opposite()
+}
