@@ -21,7 +21,7 @@ use ferrustry_content::ItemId;
 use serde::{Deserialize, Serialize};
 
 use crate::geom::{Dir, TilePos};
-use crate::world::Link;
+use crate::world::{Link, Waiter};
 
 /// Длина тайла в единицах пути.
 pub const TILE_LEN: u32 = 256;
@@ -87,7 +87,7 @@ pub struct Segment {
     /// Позволяет отклонить вставку в насыщенную ленту за O(1).
     wide: u32,
     /// Сегменты, уснувшие в ожидании места в этом сегменте.
-    pub(crate) waiters: Vec<u32>,
+    pub(crate) waiters: Vec<Waiter>,
     /// Кэш получателя на выходе (действителен при `link_epoch == эпохе топологии мира`).
     pub(crate) link: Link,
     /// Эпоха, для которой разрешён `link` (0 — не разрешён).
@@ -102,7 +102,7 @@ struct SegmentRepr {
     speed: u32,
     items: Vec<(ItemId, u32)>,
     compressed: u32,
-    waiters: Vec<u32>,
+    waiters: Vec<Waiter>,
     link: Link,
     link_epoch: u64,
 }
@@ -417,6 +417,64 @@ impl Segment {
         self.try_insert_at(item, (l - k) as u32 * TILE_LEN - TILE_LEN / 2)
     }
 
+    /// Длина сжатого неподвижного префикса.
+    pub(crate) fn compressed_len(&self) -> u32 {
+        self.compressed
+    }
+
+    /// Свободное место перед первым предметом (у выхода); для пустого сегмента — без ограничения.
+    pub(crate) fn front_free(&self) -> u32 {
+        if self.len == 0 {
+            u32::MAX
+        } else {
+            gap_of(self.slots[self.head as usize])
+        }
+    }
+
+    /// Позиция вставки (расстояние от конца) для входа на тайл `k` сзади или сбоку.
+    pub(crate) fn insert_pos(&self, k: usize, behind: bool) -> u32 {
+        let l = self.tiles.len().max(k + 1);
+        let base = (l - k) as u32 * TILE_LEN;
+        if behind { base } else { base - TILE_LEN / 2 }
+    }
+
+    /// Нижняя оценка числа тиков, через которое вставка в позицию `pos` может стать возможной,
+    /// если ничего, кроме равномерного движения несжатых предметов, не произойдёт.
+    /// `None` — при текущем движении не станет возможной никогда (нужен внешний повод: выдача
+    /// предмета из заблокированной ленты, освобождение головы, перестройка).
+    ///
+    /// Оценка занижена (округление вниз, без учёта будущих остановок), поэтому разбудить
+    /// ожидающего по ней можно только раньше, чем вставка реально станет возможной.
+    pub(crate) fn earliest_insert(&self, pos: u32) -> Option<u32> {
+        let n = self.len as usize;
+        if n == 0 {
+            return Some(0);
+        }
+        let d = i64::from(self.speed.max(1));
+        let c = self.compressed as usize;
+        let pos = i64::from(pos);
+        let sp = i64::from(ITEM_SPACING);
+        let mut best: Option<i64> = None;
+        let mut take = |t: i64| {
+            let t = t.max(0) / d;
+            best = Some(best.map_or(t, |b: i64| b.min(t)));
+        };
+        let mut prev = 0i64;
+        for (i, &s) in self.window().iter().enumerate() {
+            let q = prev + i64::from(gap_of(s));
+            // зазор между движущимися предметами i-1 и i проходит мимо `pos`
+            if i > c && i64::from(gap_of(s)) >= 2 * sp && q - sp - pos >= 0 {
+                take(prev + sp - pos);
+            }
+            prev = q;
+        }
+        // свободный хвост за последним (движущимся) предметом
+        if n > c && pos <= i64::from(self.len_units()) {
+            take(prev + sp - pos);
+        }
+        best.map(|t| u32::try_from(t).unwrap_or(u32::MAX))
+    }
+
     /// Все предметы стоят вплотную у заблокированного выхода.
     pub(crate) fn is_fully_compressed(&self) -> bool {
         self.len > 0 && self.compressed == self.len
@@ -649,6 +707,49 @@ mod tests {
                 assert_eq!(s.item_count(), count);
             }
         }
+    }
+
+    /// Прогноз — нижняя оценка: при одном лишь движении вставка не удаётся раньше него.
+    #[test]
+    fn earliest_insert_is_a_lower_bound() {
+        let mut rng = crate::rng::Rng::new(7);
+        let mut checked = 0;
+        for _ in 0..3000 {
+            let len = 1 + rng.below(32) as i32;
+            let mut s = seg(len, 1 + rng.below(32));
+            // случайное заполнение и немного движения/блокировки
+            for _ in 0..rng.below(200) {
+                match rng.below(3) {
+                    0 => {
+                        let p = rng.below(s.len_units() + 1);
+                        s.try_insert_at(IRON, p);
+                    }
+                    _ => {
+                        s.advance();
+                    }
+                }
+            }
+            let pos = rng.below(s.len_units() + 1);
+            let mut probe = s.clone();
+            if probe.try_insert_at(IRON, pos) {
+                continue; // вставка возможна уже сейчас
+            }
+            let predicted = s.earliest_insert(pos);
+            // имитация: выход заблокирован (ничего не выдаётся), только движение
+            let horizon = 2 * s.len_units() / s.speed + 2;
+            let mut sim = s.clone();
+            for t in 1..=horizon {
+                sim.advance();
+                let mut probe = sim.clone();
+                if probe.try_insert_at(IRON, pos) {
+                    let p = predicted.expect("insert became possible although predicted never");
+                    assert!(p <= t, "predicted {p}, but possible at {t}");
+                    break;
+                }
+            }
+            checked += 1;
+        }
+        assert!(checked > 500, "too few informative cases: {checked}");
     }
 
     #[test]

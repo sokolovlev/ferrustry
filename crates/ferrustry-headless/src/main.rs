@@ -20,7 +20,8 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless run [--ticks N] [--save FILE]   вертикальный срез, сводка
   ferrustry-headless resume FILE [--ticks N]          продолжить сохранение
   ferrustry-headless save-check [--ticks N]           save → load → сравнить продолжение
-  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
+  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
+  ferrustry-headless suite [--runs N] [--quick] [--out FILE]  полный набор бенчмарков (медианы)
 ";
 
 struct Args {
@@ -63,6 +64,13 @@ impl Args {
 }
 
 fn main() -> ExitCode {
+    #[cfg(target_arch = "x86_64")]
+    if !std::arch::is_x86_feature_detected!("avx2") {
+        eprintln!(
+            "error: Ferrustry requires a CPU with AVX2 (Intel Haswell 2013+ / AMD Zen or newer)"
+        );
+        return ExitCode::FAILURE;
+    }
     let mut args = Args {
         rest: std::env::args().skip(1).collect(),
     };
@@ -147,6 +155,16 @@ fn real_main(args: &mut Args) -> Result<(), String> {
             }
             Ok(())
         }
+        "suite" => {
+            let runs = args.number("--runs", 3)?;
+            let quick = args.rest.iter().any(|a| a == "--quick");
+            args.rest.retain(|a| a != "--quick");
+            let out = args
+                .value("--out")?
+                .unwrap_or_else(|| "bench-suite.json".to_owned());
+            args.finish()?;
+            suite(runs, quick, &out)
+        }
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             Ok(())
@@ -200,12 +218,15 @@ struct Report {
     profile: &'static str,
     tick_rate_hz: u32,
     budget_us: f64,
+    target_cpu: &'static str,
     warmup_ticks: u64,
     measured_ticks: u64,
     buildings: usize,
     conveyor_segments: usize,
     awake_segments: usize,
+    awake_drills: usize,
     items_on_conveyors: u64,
+    items_in_cores: u64,
     setup_ms: f64,
     tick: TickStats,
     allocations_per_tick: f64,
@@ -228,9 +249,10 @@ fn bench(
         "b2" => scenario::bench_conveyor_loops(reg, n),
         "b2-blocked" => scenario::bench_blocked_lines(reg, n),
         "b2-comb" => scenario::bench_combs(reg, n),
+        "b3" => scenario::bench_megabase(reg, n),
         other => {
             return Err(format!(
-                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb)"
+                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb, b3)"
             ));
         }
     }
@@ -272,12 +294,19 @@ fn bench(
         },
         tick_rate_hz: TICKS_PER_SECOND,
         budget_us,
+        target_cpu: if cfg!(target_feature = "avx2") {
+            "avx2"
+        } else {
+            "baseline"
+        },
         warmup_ticks: warmup,
         measured_ticks: ticks,
         buildings: w.buildings().len(),
         conveyor_segments: w.segments().count(),
         awake_segments: w.awake_segments(),
+        awake_drills: w.awake_drills(),
         items_on_conveyors: w.items_on_conveyors().iter().sum(),
+        items_in_cores: w.total_core_items().iter().sum(),
         setup_ms,
         tick: TickStats {
             mean_us: mean,
@@ -309,4 +338,65 @@ fn cpu_model() -> Option<String> {
     let info = std::fs::read_to_string("/proc/cpuinfo").ok()?;
     let line = info.lines().find(|l| l.starts_with("model name"))?;
     Some(line.split(':').nth(1)?.trim().to_owned())
+}
+
+/// Полный набор бенчмарков: каждый прогон — отдельный процесс (чистый RSS, без влияния
+/// предыдущих сценариев); итог — медианы по прогонам.
+fn suite(runs: u64, quick: bool, out: &str) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let (warmup, ticks) = if quick { (1000, 500) } else { (6000, 3000) };
+    let sizes: &[u64] = if quick { &[10_000] } else { &[10_000, 100_000] };
+    let mut cases: Vec<(&str, u64)> = vec![("b1", 0)];
+    for s in ["b2", "b2-blocked", "b2-comb", "b3"] {
+        for &n in sizes {
+            cases.push((s, n));
+        }
+    }
+    let mut results = Vec::new();
+    println!(
+        "{:<11} {:>7} {:>11} {:>11} {:>8} {:>9}",
+        "scenario", "size", "mean_us", "p99_us", "alloc/t", "rss_mib"
+    );
+    for (name, n) in cases {
+        let mut reports: Vec<serde_json::Value> = Vec::new();
+        for _ in 0..runs.max(1) {
+            let output = std::process::Command::new(&exe)
+                .args(["bench", name, "--conveyors", &n.max(1).to_string()])
+                .args([
+                    "--ticks",
+                    &ticks.to_string(),
+                    "--warmup",
+                    &warmup.to_string(),
+                ])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Err(format!(
+                    "{name}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            reports.push(serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?);
+        }
+        let median = |f: &dyn Fn(&serde_json::Value) -> f64| {
+            let mut v: Vec<f64> = reports.iter().map(f).collect();
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2]
+        };
+        let mean = median(&|r| r["tick"]["mean_us"].as_f64().unwrap_or(f64::NAN));
+        let p99 = median(&|r| r["tick"]["p99_us"].as_f64().unwrap_or(f64::NAN));
+        let alloc = median(&|r| r["allocations_per_tick"].as_f64().unwrap_or(f64::NAN));
+        let rss = median(&|r| r["peak_rss_kib"].as_f64().unwrap_or(f64::NAN)) / 1024.0;
+        println!("{name:<11} {n:>7} {mean:>11.2} {p99:>11.2} {alloc:>8.2} {rss:>9.1}");
+        results.push(serde_json::json!({
+            "scenario": name, "size": n, "median_mean_us": mean, "median_p99_us": p99,
+            "median_allocations_per_tick": alloc, "runs": reports,
+        }));
+    }
+    let doc =
+        serde_json::json!({ "warmup_ticks": warmup, "measured_ticks": ticks, "results": results });
+    let json = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(out, json).map_err(|e| format!("{out}: {e}"))?;
+    println!("\nfull report: {out}");
+    Ok(())
 }

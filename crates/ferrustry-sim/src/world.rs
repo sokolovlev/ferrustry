@@ -132,6 +132,10 @@ pub struct World {
     no_sleep: bool,
     /// Эпоха топологии: растёт при любой стройке/сносе; инвалидирует кэши связей.
     topo_epoch: u64,
+    /// Битсет бодрствующих буров по индексу ячейки арены.
+    drill_awake: Vec<u64>,
+    /// Колесо таймеров пробуждения: слот `tick % TIMER_SLOTS` → (тик, кто).
+    timers: Vec<Vec<(u64, Sleeper)>>,
     pub(crate) power: PowerState,
     rng: Rng,
     stats: Stats,
@@ -160,6 +164,25 @@ pub(crate) enum Link {
     },
 }
 
+/// Кто может спать в ожидании события.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Sleeper {
+    /// Сегмент конвейера.
+    Segment(u32),
+    /// Постройка (сейчас — бур).
+    Building(BuildingId),
+}
+
+/// Запись об ожидании места в сегменте: кто ждёт и в какую позицию хочет вставить.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Waiter {
+    pub(crate) who: Sleeper,
+    pub(crate) pos: u32,
+}
+
+/// Число слотов колеса таймеров.
+const TIMER_SLOTS: usize = 256;
+
 /// Максимальная длина сегмента конвейера в тайлах.
 pub const MAX_SEGMENT_TILES: usize = 32;
 
@@ -183,6 +206,8 @@ impl World {
             seg_awake: Vec::new(),
             no_sleep: false,
             topo_epoch: 1,
+            drill_awake: Vec::new(),
+            timers: vec![Vec::new(); TIMER_SLOTS],
             power: PowerState::default(),
             rng: Rng::new(seed),
             stats: Stats::new(items),
@@ -319,6 +344,7 @@ impl World {
             self.rebuild_power(reg);
         }
         self.balance_power(reg);
+        self.fire_timers();
         self.update_drills(reg);
         self.update_crafters(reg);
         self.update_conveyors(reg);
@@ -437,10 +463,17 @@ impl World {
         if def.is_power() {
             self.power.dirty = true;
         }
+        if tag == KindTag::Drill {
+            self.wake_drill(id);
+        }
+        if let Some(b) = self.buildings.get(id).cloned() {
+            self.wake_adjacent_drills(&b);
+            if tag != KindTag::Conveyor {
+                self.wake_perimeter(&b);
+            }
+        }
         if tag == KindTag::Conveyor {
             self.rebuild_conveyors_around(reg, origin, &[]);
-        } else if let Some(b) = self.buildings.get(id).cloned() {
-            self.wake_perimeter(&b);
         }
         Ok(id)
     }
@@ -526,6 +559,7 @@ impl World {
         {
             mb.row = b.row;
         }
+        self.wake_adjacent_drills(&b);
         if let Some(seg) = old_segment {
             self.rebuild_conveyors_around(reg, at, &[seg]);
         } else {
@@ -621,7 +655,7 @@ impl World {
             self.free_segments.push(s);
             self.sleep_segment(s as usize);
             for wt in std::mem::take(&mut seg.waiters) {
-                self.wake_segment(wt);
+                self.wake(wt.who);
             }
             let seg_tiles = std::mem::take(&mut seg.tiles);
             seg.tiles.clone_from(&seg_tiles);
@@ -892,29 +926,87 @@ impl World {
     // -----------------------------------------------------------------------
 
     fn update_drills(&mut self, reg: &ContentRegistry) {
-        for r in 0..self.drills.len() {
-            let owner = self.drills.owners[r];
-            let Some(b) = self.buildings.get(owner) else {
-                continue;
-            };
-            let BlockKind::Drill { base_ticks, buffer } = reg.block(b.block).kind else {
-                continue;
-            };
-            let threshold = base_ticks * u32::from(b.size) * u32::from(b.size);
-            let row = &mut self.drills.rows[r];
-            let Some(item) = row.item else { continue };
-            if row.buffer < buffer {
-                row.progress += row.ore_tiles;
-                if row.progress >= threshold {
-                    row.progress -= threshold;
-                    row.buffer += 1;
-                    Stats::bump(&mut self.stats.produced, item, 1);
+        // Бодрствующие буры по возрастанию индекса ячейки арены (детерминированно).
+        let mut w = 0;
+        while w < self.drill_awake.len() {
+            let mut from_bit = 0u32;
+            while from_bit < 64 {
+                let bits = self.drill_awake[w] & (u64::MAX << from_bit);
+                if bits == 0 {
+                    break;
                 }
+                let bit = bits.trailing_zeros();
+                self.update_drill(reg, w * 64 + bit as usize);
+                from_bit = bit + 1;
             }
-            if self.drills.rows[r].buffer > 0 && self.dump(reg, owner, item) {
-                self.drills.rows[r].buffer -= 1;
+            w += 1;
+        }
+    }
+
+    fn update_drill(&mut self, reg: &ContentRegistry, slot: usize) {
+        let Some(owner) = self.buildings.id_at(slot) else {
+            self.sleep_drill(slot);
+            return;
+        };
+        let Some(b) = self.buildings.get(owner) else {
+            return;
+        };
+        let (KindTag::Drill, BlockKind::Drill { base_ticks, buffer }) =
+            (b.tag, &reg.block(b.block).kind)
+        else {
+            self.sleep_drill(slot);
+            return;
+        };
+        let (base_ticks, cap) = (*base_ticks, *buffer);
+        let r = b.row as usize;
+        let threshold = base_ticks * u32::from(b.size) * u32::from(b.size);
+        let Some(row) = self.drills.rows.get_mut(r) else {
+            return;
+        };
+        let Some(item) = row.item else {
+            // руды под буром нет — работать он не начнёт никогда
+            self.sleep_drill(slot);
+            return;
+        };
+        if row.buffer < cap {
+            row.progress += row.ore_tiles;
+            if row.progress >= threshold {
+                row.progress -= threshold;
+                row.buffer += 1;
+                Stats::bump(&mut self.stats.produced, item, 1);
             }
         }
+        if self.drills.rows[r].buffer == 0 {
+            return;
+        }
+        if self.dump(reg, owner, item) {
+            self.drills.rows[r].buffer -= 1;
+            return;
+        }
+        if self.drills.rows[r].buffer < cap {
+            return; // ещё добывает
+        }
+        // Буфер полон и никто не принял предмет: бур может уснуть, если все получатели —
+        // ленты (их освобождение отслеживается); производства и ядра пока всегда опрашиваются.
+        let n = self.buildings.get(owner).map_or(0, |b| b.dump_links.len());
+        let has_building = (0..n).any(|j| {
+            matches!(
+                self.buildings.get(owner).map(|b| b.dump_links[j]),
+                Some(Link::Building(_))
+            )
+        });
+        if has_building {
+            return;
+        }
+        for j in 0..n {
+            let Some(link) = self.buildings.get(owner).map(|b| b.dump_links[j]) else {
+                return;
+            };
+            if let Link::Segment { seg, k, behind } = link {
+                self.wait_on_segment(Sleeper::Building(owner), seg, k, behind);
+            }
+        }
+        self.sleep_drill(slot);
     }
 
     /// Может ли производство сейчас работать (есть входы и место под выходы).
@@ -1035,20 +1127,16 @@ impl World {
             return;
         };
         if delivered {
+            let was_blocked = seg.compressed_len() > 0;
             seg.pop_front();
+            let front_free = seg.front_free();
+            self.release_waiters(i, was_blocked, front_free);
         }
+        let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) else {
+            return;
+        };
         let moved = seg.advance();
         if delivered || moved {
-            // Освободилось место: будим тех, кто ждал этот сегмент.
-            let waiters = std::mem::take(&mut seg.waiters);
-            for &wt in &waiters {
-                self.wake_segment(wt);
-            }
-            if let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) {
-                let mut waiters = waiters;
-                waiters.clear();
-                seg.waiters = waiters; // сохраняем ёмкость: без аллокаций в стационарном режиме
-            }
             return;
         }
         // Ничего не изменилось: можно ли уснуть без изменения поведения?
@@ -1057,23 +1145,134 @@ impl World {
         match target {
             None if empty => self.sleep_segment(i),
             Some(Link::Nothing | Link::Refuses) if stuck => self.sleep_segment(i),
-            Some(Link::Segment { seg: t, .. }) if stuck && t as usize != i && !self.is_awake(t) => {
-                if let Some(ts) = self.segments.get_mut(t as usize).and_then(Option::as_mut) {
-                    if ts.waiters.last() != Some(&(i as u32)) {
-                        ts.waiters.push(i as u32);
-                    }
-                    self.sleep_segment(i);
-                }
+            Some(Link::Segment { seg: t, k, behind })
+                if stuck
+                    && t as usize != i
+                    && self.wait_on_segment(Sleeper::Segment(i as u32), t, k, behind) =>
+            {
+                self.sleep_segment(i);
             }
             _ => {}
         }
     }
 
-    fn is_awake(&self, s: u32) -> bool {
-        let s = s as usize;
-        self.seg_awake
-            .get(s / 64)
-            .is_some_and(|w| w & (1u64 << (s % 64)) != 0)
+    /// Регистрирует `who` в ожидании места в сегменте `t` (вход на тайл `k`) и ставит таймер
+    /// по нижней оценке. Возвращает `false`, если сегмента нет.
+    fn wait_on_segment(&mut self, who: Sleeper, t: u32, k: u32, behind: bool) -> bool {
+        let now = self.tick;
+        let Some(ts) = self.segments.get_mut(t as usize).and_then(Option::as_mut) else {
+            return false;
+        };
+        let pos = ts.insert_pos(k as usize, behind);
+        let w = Waiter { who, pos };
+        // Ожидающий, разбуженный таймером, остаётся в списке; повторная регистрация не должна
+        // его дублировать (иначе список растёт без ограничений). Списки короткие — линейный поиск.
+        if !ts.waiters.contains(&w) {
+            ts.waiters.push(w);
+        }
+        if let Some(dt) = ts.earliest_insert(pos) {
+            self.schedule(now + u64::from(dt.max(1)), who);
+        }
+        true
+    }
+
+    /// После выдачи предмета сегментом `i`: будит ожидающих, у которых могло появиться место.
+    /// Если лента была заблокирована (часть предметов стояла), её движение меняется — будим всех;
+    /// иначе — только тех, кому хватит освободившегося места у выхода.
+    fn release_waiters(&mut self, i: usize, was_blocked: bool, front_free: u32) {
+        let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) else {
+            return;
+        };
+        if seg.waiters.is_empty() {
+            return;
+        }
+        let mut ws = std::mem::take(&mut seg.waiters);
+        ws.retain(|w| {
+            let wake =
+                was_blocked || w.pos.saturating_add(crate::segment::ITEM_SPACING) <= front_free;
+            if wake {
+                self.wake(w.who);
+            }
+            !wake
+        });
+        if let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) {
+            seg.waiters = ws; // ёмкость сохраняется: без аллокаций в стационарном режиме
+        }
+    }
+
+    fn wake(&mut self, who: Sleeper) {
+        match who {
+            Sleeper::Segment(s) => self.wake_segment(s),
+            Sleeper::Building(id) => self.wake_drill(id),
+        }
+    }
+
+    fn schedule(&mut self, at: u64, who: Sleeper) {
+        if self.no_sleep {
+            return;
+        }
+        let slot = (at % TIMER_SLOTS as u64) as usize;
+        if let Some(v) = self.timers.get_mut(slot) {
+            v.push((at, who));
+        }
+    }
+
+    fn fire_timers(&mut self) {
+        let now = self.tick;
+        let slot = (now % TIMER_SLOTS as u64) as usize;
+        let Some(v) = self.timers.get_mut(slot) else {
+            return;
+        };
+        if v.is_empty() {
+            return;
+        }
+        let mut v = std::mem::take(v);
+        v.retain(|&(at, who)| {
+            if at <= now {
+                self.wake(who);
+                false
+            } else {
+                true
+            }
+        });
+        if let Some(slot) = self.timers.get_mut(slot) {
+            *slot = v;
+        }
+    }
+
+    fn wake_drill(&mut self, id: BuildingId) {
+        let s = Arena::slot_index(id);
+        let words = self.buildings.slot_count().div_ceil(64);
+        if self.drill_awake.len() < words {
+            self.drill_awake.resize(words, 0);
+        }
+        if let Some(w) = self.drill_awake.get_mut(s / 64) {
+            *w |= 1u64 << (s % 64);
+        }
+    }
+
+    fn sleep_drill(&mut self, slot: usize) {
+        if self.no_sleep && self.buildings.id_at(slot).is_some() {
+            return;
+        }
+        if let Some(w) = self.drill_awake.get_mut(slot / 64) {
+            *w &= !(1u64 << (slot % 64));
+        }
+    }
+
+    /// Будит буры, касающиеся постройки (её появление/снос меняет их получателей).
+    fn wake_adjacent_drills(&mut self, b: &Building) {
+        for p in 0..b.perimeter_len() {
+            let (outer, _) = b.perimeter(p);
+            if let Some(id) = self.grid.building(outer)
+                && self
+                    .buildings
+                    .get(id)
+                    .is_some_and(|ob| ob.tag == KindTag::Drill)
+            {
+                self.wake_drill(id);
+            }
+        }
     }
 
     fn wake_segment(&mut self, s: u32) {
@@ -1111,6 +1310,18 @@ impl World {
                 self.wake_segment(i as u32);
             }
         }
+        let drills: Vec<BuildingId> = self.drills.owners.clone();
+        for id in drills {
+            self.wake_drill(id);
+        }
+    }
+
+    /// Число бодрствующих буров (диагностика и бенчмарки).
+    pub fn awake_drills(&self) -> usize {
+        self.drill_awake
+            .iter()
+            .map(|w| w.count_ones() as usize)
+            .sum()
     }
 
     /// Число бодрствующих сегментов (диагностика и бенчмарки).
@@ -1215,6 +1426,9 @@ impl World {
                 return Err("core storage size mismatch".into());
             }
         }
+        if self.timers.len() != TIMER_SLOTS {
+            return Err("timer wheel size mismatch".into());
+        }
         if self.seg_awake.len() < self.segments.len().div_ceil(64) {
             return Err("awake bitset too short".into());
         }
@@ -1224,7 +1438,7 @@ impl World {
             if seg
                 .waiters
                 .iter()
-                .any(|&w| w as usize >= self.segments.len())
+                .any(|w| matches!(w.who, Sleeper::Segment(s) if s as usize >= self.segments.len()))
             {
                 return Err("segment waiter out of range".into());
             }

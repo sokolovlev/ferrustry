@@ -1,0 +1,1005 @@
+{
+  "measured_ticks": 3000,
+  "results": [
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 0.024640333333333635,
+      "median_p99_us": 0.026,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 0,
+          "commit": "4cefe75",
+          "conveyor_segments": 0,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 0,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 7612,
+          "profile": "release",
+          "scenario": "b1",
+          "setup_ms": 1.654598,
+          "state_hash": "f28bf9962a941a3b",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.051,
+            "mean_us": 0.02463333333333361,
+            "over_budget": 0,
+            "p50_us": 0.025,
+            "p99_us": 0.026
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 0,
+          "commit": "4cefe75",
+          "conveyor_segments": 0,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 0,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 7504,
+          "profile": "release",
+          "scenario": "b1",
+          "setup_ms": 1.485222,
+          "state_hash": "f28bf9962a941a3b",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.049,
+            "mean_us": 0.024640333333333635,
+            "over_budget": 0,
+            "p50_us": 0.025,
+            "p99_us": 0.026
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 0,
+          "commit": "4cefe75",
+          "conveyor_segments": 0,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 0,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 7440,
+          "profile": "release",
+          "scenario": "b1",
+          "setup_ms": 1.79625,
+          "state_hash": "f28bf9962a941a3b",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.52,
+            "mean_us": 0.034657666666666996,
+            "over_budget": 0,
+            "p50_us": 0.035,
+            "p99_us": 0.045
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b1",
+      "size": 0
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 3.469941000000001,
+      "median_p99_us": 7.65,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 364,
+          "budget_us": 33333.333333333336,
+          "buildings": 10192,
+          "commit": "4cefe75",
+          "conveyor_segments": 364,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 20748,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 7128,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 34.186802,
+          "state_hash": "931663020be75ea6",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 69.464,
+            "mean_us": 3.7959246666666697,
+            "over_budget": 0,
+            "p50_us": 2.868,
+            "p99_us": 25.647
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 364,
+          "budget_us": 33333.333333333336,
+          "buildings": 10192,
+          "commit": "4cefe75",
+          "conveyor_segments": 364,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 20748,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6988,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 33.951078,
+          "state_hash": "931663020be75ea6",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 39.527,
+            "mean_us": 3.456243666666661,
+            "over_budget": 0,
+            "p50_us": 2.869,
+            "p99_us": 7.65
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 364,
+          "budget_us": 33333.333333333336,
+          "buildings": 10192,
+          "commit": "4cefe75",
+          "conveyor_segments": 364,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 20748,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 7132,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 41.916129000000005,
+          "state_hash": "931663020be75ea6",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 106.81,
+            "mean_us": 3.469941000000001,
+            "over_budget": 0,
+            "p50_us": 2.8329999999999997,
+            "p99_us": 7.593
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 33.2578090000001,
+      "median_p99_us": 68.584,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 3577,
+          "budget_us": 33333.333333333336,
+          "buildings": 100156,
+          "commit": "4cefe75",
+          "conveyor_segments": 3577,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 203889,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 41212,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 268.015018,
+          "state_hash": "dfea56753cc9acbe",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 172.28900000000002,
+            "mean_us": 33.71148333333326,
+            "over_budget": 0,
+            "p50_us": 28.109,
+            "p99_us": 77.272
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 3577,
+          "budget_us": 33333.333333333336,
+          "buildings": 100156,
+          "commit": "4cefe75",
+          "conveyor_segments": 3577,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 203889,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 41252,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 278.68206200000003,
+          "state_hash": "dfea56753cc9acbe",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 150.763,
+            "mean_us": 33.22483300000005,
+            "over_budget": 0,
+            "p50_us": 27.945,
+            "p99_us": 65.23
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 3577,
+          "budget_us": 33333.333333333336,
+          "buildings": 100156,
+          "commit": "4cefe75",
+          "conveyor_segments": 3577,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 203889,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 41364,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 364.475827,
+          "state_hash": "dfea56753cc9acbe",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 291.467,
+            "mean_us": 33.2578090000001,
+            "over_budget": 0,
+            "p50_us": 27.76,
+            "p99_us": 68.584
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2",
+      "size": 100000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 0.031071666666667212,
+      "median_p99_us": 0.032,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 10000,
+          "commit": "4cefe75",
+          "conveyor_segments": 400,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 40400,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 4724,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 26.373278,
+          "state_hash": "4ad69d39f1ce5b17",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.057,
+            "mean_us": 0.031066666666667256,
+            "over_budget": 0,
+            "p50_us": 0.031,
+            "p99_us": 0.032
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 10000,
+          "commit": "4cefe75",
+          "conveyor_segments": 400,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 40400,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 4788,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 22.567429,
+          "state_hash": "4ad69d39f1ce5b17",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.065,
+            "mean_us": 0.03130233333333343,
+            "over_budget": 0,
+            "p50_us": 0.031,
+            "p99_us": 0.032
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 10000,
+          "commit": "4cefe75",
+          "conveyor_segments": 400,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 40400,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 4800,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 25.708065,
+          "state_hash": "4ad69d39f1ce5b17",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.061000000000000006,
+            "mean_us": 0.031071666666667212,
+            "over_budget": 0,
+            "p50_us": 0.031,
+            "p99_us": 0.032
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-blocked",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 0.08985666666666434,
+      "median_p99_us": 0.093,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 100000,
+          "commit": "4cefe75",
+          "conveyor_segments": 4000,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 404000,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 19748,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 245.95366399999995,
+          "state_hash": "b4a1e09cb4e33753",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 30.439,
+            "mean_us": 0.1483086666666656,
+            "over_budget": 0,
+            "p50_us": 0.13899999999999998,
+            "p99_us": 0.159
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 100000,
+          "commit": "4cefe75",
+          "conveyor_segments": 4000,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 404000,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 19816,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 266.18468299999995,
+          "state_hash": "b4a1e09cb4e33753",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.15200000000000002,
+            "mean_us": 0.08830866666666427,
+            "over_budget": 0,
+            "p50_us": 0.088,
+            "p99_us": 0.09
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 100000,
+          "commit": "4cefe75",
+          "conveyor_segments": 4000,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 404000,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 19692,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 252.741677,
+          "state_hash": "b4a1e09cb4e33753",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 3.519,
+            "mean_us": 0.08985666666666434,
+            "over_budget": 0,
+            "p50_us": 0.088,
+            "p99_us": 0.093
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-blocked",
+      "size": 100000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 12.025726333333322,
+      "median_p99_us": 39.115,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 340,
+          "awake_segments": 476,
+          "budget_us": 33333.333333333336,
+          "buildings": 11254,
+          "commit": "4cefe75",
+          "conveyor_segments": 1258,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 73304,
+          "items_on_conveyors": 32164,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6216,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 17.850184000000002,
+          "state_hash": "fe66c67591257f4d",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 61.895,
+            "mean_us": 11.409657333333325,
+            "over_budget": 0,
+            "p50_us": 6.898,
+            "p99_us": 34.713
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 340,
+          "awake_segments": 476,
+          "budget_us": 33333.333333333336,
+          "buildings": 11254,
+          "commit": "4cefe75",
+          "conveyor_segments": 1258,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 73304,
+          "items_on_conveyors": 32164,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6352,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 19.225498,
+          "state_hash": "fe66c67591257f4d",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 149.436,
+            "mean_us": 12.025726333333322,
+            "over_budget": 0,
+            "p50_us": 6.832,
+            "p99_us": 39.115
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 340,
+          "awake_segments": 476,
+          "budget_us": 33333.333333333336,
+          "buildings": 11254,
+          "commit": "4cefe75",
+          "conveyor_segments": 1258,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 73304,
+          "items_on_conveyors": 32164,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6352,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 17.905341,
+          "state_hash": "fe66c67591257f4d",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 83.57000000000001,
+            "mean_us": 14.88311966666664,
+            "over_budget": 0,
+            "p50_us": 8.786,
+            "p99_us": 47.497
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-comb",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 259.566655,
+      "median_p99_us": 740.918,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 3370,
+          "awake_segments": 4718,
+          "budget_us": 33333.333333333336,
+          "buildings": 111547,
+          "commit": "4cefe75",
+          "conveyor_segments": 12469,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 726572,
+          "items_on_conveyors": 318802,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 32676,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 194.079682,
+          "state_hash": "2c0ed539578515d8",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 691.7909999999999,
+            "mean_us": 192.7592856666661,
+            "over_budget": 0,
+            "p50_us": 139.981,
+            "p99_us": 520.618
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 3370,
+          "awake_segments": 4718,
+          "budget_us": 33333.333333333336,
+          "buildings": 111547,
+          "commit": "4cefe75",
+          "conveyor_segments": 12469,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 726572,
+          "items_on_conveyors": 318802,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 32660,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 250.314297,
+          "state_hash": "2c0ed539578515d8",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1603.9450000000002,
+            "mean_us": 327.0458080000002,
+            "over_budget": 0,
+            "p50_us": 268.353,
+            "p99_us": 800.7929999999999
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 3370,
+          "awake_segments": 4718,
+          "budget_us": 33333.333333333336,
+          "buildings": 111547,
+          "commit": "4cefe75",
+          "conveyor_segments": 12469,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 726572,
+          "items_on_conveyors": 318802,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 32816,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 192.834913,
+          "state_hash": "2c0ed539578515d8",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1194.599,
+            "mean_us": 259.566655,
+            "over_budget": 0,
+            "p50_us": 211.031,
+            "p99_us": 740.918
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-comb",
+      "size": 100000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 27.32223999999998,
+      "median_p99_us": 51.499,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 840,
+          "awake_segments": 1050,
+          "budget_us": 33333.333333333336,
+          "buildings": 12642,
+          "commit": "4cefe75",
+          "conveyor_segments": 1134,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 85470,
+          "items_on_conveyors": 16590,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6100,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 17.249055,
+          "state_hash": "21de9ee373da27f5",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 233.721,
+            "mean_us": 27.92075966666672,
+            "over_budget": 0,
+            "p50_us": 25.147,
+            "p99_us": 70.67999999999999
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 840,
+          "awake_segments": 1050,
+          "budget_us": 33333.333333333336,
+          "buildings": 12642,
+          "commit": "4cefe75",
+          "conveyor_segments": 1134,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 85470,
+          "items_on_conveyors": 16590,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6024,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 15.929351,
+          "state_hash": "21de9ee373da27f5",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 135.316,
+            "mean_us": 27.136840333333293,
+            "over_budget": 0,
+            "p50_us": 24.68,
+            "p99_us": 51.499
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 840,
+          "awake_segments": 1050,
+          "budget_us": 33333.333333333336,
+          "buildings": 12642,
+          "commit": "4cefe75",
+          "conveyor_segments": 1134,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 85470,
+          "items_on_conveyors": 16590,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 6224,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 14.64144,
+          "state_hash": "21de9ee373da27f5",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 127.375,
+            "mean_us": 27.32223999999998,
+            "over_budget": 0,
+            "p50_us": 24.884,
+            "p99_us": 50.195
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b3",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 703.4422556666676,
+      "median_p99_us": 1218.949,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 8340,
+          "awake_segments": 10425,
+          "budget_us": 33333.333333333336,
+          "buildings": 125517,
+          "commit": "4cefe75",
+          "conveyor_segments": 11259,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 848595,
+          "items_on_conveyors": 164715,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 33016,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 185.322153,
+          "state_hash": "2d00bc534c237879",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 2016.449,
+            "mean_us": 703.4422556666676,
+            "over_budget": 0,
+            "p50_us": 635.898,
+            "p99_us": 1218.949
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 8340,
+          "awake_segments": 10425,
+          "budget_us": 33333.333333333336,
+          "buildings": 125517,
+          "commit": "4cefe75",
+          "conveyor_segments": 11259,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 848595,
+          "items_on_conveyors": 164715,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 33180,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 156.233891,
+          "state_hash": "2d00bc534c237879",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 2583.3230000000003,
+            "mean_us": 585.8199529999997,
+            "over_budget": 0,
+            "p50_us": 556.2520000000001,
+            "p99_us": 917.447
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 8340,
+          "awake_segments": 10425,
+          "budget_us": 33333.333333333336,
+          "buildings": 125517,
+          "commit": "4cefe75",
+          "conveyor_segments": 11259,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 848595,
+          "items_on_conveyors": 164715,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": "Intel(R) Xeon(R) Processor",
+            "logical_cpus": 4,
+            "os": "linux"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": 33128,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 151.75627699999998,
+          "state_hash": "2d00bc534c237879",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 2398.3799999999997,
+            "mean_us": 1227.1354356666664,
+            "over_budget": 0,
+            "p50_us": 1166.057,
+            "p99_us": 1765.765
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b3",
+      "size": 100000
+    }
+  ],
+  "warmup_ticks": 6000
+}

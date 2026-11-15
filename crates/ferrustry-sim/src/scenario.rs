@@ -233,3 +233,58 @@ pub fn bench_combs(reg: &ContentRegistry, conveyors: u32) -> Result<World, Scena
     }
     Ok(w)
 }
+
+/// B3 «мегабаза»: ряды производственных ячеек на общей шине.
+///
+/// Ячейка (ширина 8): 2 бура на железной жиле → лента с поворотом → плавильня (2 ветряка) →
+/// лента вверх, вливается сбоку в шину ряда. Шина (12 ячеек = 96 тайлов) идёт в ядро и при
+/// 12 ячейках насыщается. Около 240 конвейеров, 24 бура, 12 плавилен, 24 ветряка на ряд.
+pub fn bench_megabase(reg: &ContentRegistry, conveyors: u32) -> Result<World, ScenarioError> {
+    let ids = BaseIds::resolve(reg)?;
+    let cells = 12;
+    let cell_w = 8;
+    let row_h = 14;
+    let per_row = 240;
+    let rows = conveyors.div_ceil(per_row).max(1) as i32;
+    let bus_len = cells * cell_w;
+    let mut w = World::new(
+        reg,
+        (bus_len + 4) as u32,
+        (rows * row_h + 2) as u32,
+        ids.basalt,
+        1,
+    );
+    for r in 0..rows {
+        let y0 = r * row_h;
+        let bus_y = y0 + 12;
+        let mut cmds = Vec::new();
+        for c in 0..cells {
+            let x0 = c * cell_w;
+            for dy in 0..2 {
+                for dx in 0..4 {
+                    w.set_ore(TilePos::new(x0 + dx, y0 + dy), Some(ids.iron_vein));
+                }
+            }
+            cmds.push(place(ids.bore, x0, y0, Dir::Right));
+            cmds.push(place(ids.bore, x0 + 2, y0, Dir::Right));
+            for x in x0..x0 + 4 {
+                cmds.push(place(ids.conveyor, x, y0 + 2, Dir::Right));
+            }
+            for y in y0 + 2..y0 + 5 {
+                cmds.push(place(ids.conveyor, x0 + 4, y, Dir::Up));
+            }
+            cmds.push(place(ids.smelter, x0 + 4, y0 + 5, Dir::Right));
+            cmds.push(place(ids.wind_turbine, x0 + 6, y0 + 5, Dir::Right));
+            cmds.push(place(ids.wind_turbine, x0 + 6, y0 + 6, Dir::Right));
+            for y in y0 + 7..bus_y {
+                cmds.push(place(ids.conveyor, x0 + 4, y, Dir::Up));
+            }
+        }
+        for x in 0..bus_len {
+            cmds.push(place(ids.conveyor, x, bus_y, Dir::Right));
+        }
+        cmds.push(place(ids.core, bus_len, bus_y - 1, Dir::Right));
+        build(&mut w, reg, &cmds)?;
+    }
+    Ok(w)
+}

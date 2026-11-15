@@ -180,6 +180,15 @@ impl Arena {
         })
     }
 
+    /// ID живой постройки в ячейке `slot`.
+    pub(crate) fn id_at(&self, slot: usize) -> Option<BuildingId> {
+        let s = self.slots.get(slot)?;
+        s.building.as_ref().map(|_| BuildingId {
+            index: slot as u32,
+            generation: s.generation,
+        })
+    }
+
     /// Количество живых построек.
     pub fn len(&self) -> usize {
         self.slots.len() - self.free.len()

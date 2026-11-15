@@ -481,6 +481,38 @@ fn sleeping_does_not_change_behavior() {
 }
 
 #[test]
+fn sleeping_is_transparent_on_megabase_and_large_combs() {
+    let reg = reg();
+    assert_sleep_is_transparent(scenario::bench_megabase(&reg, 3_000).unwrap(), &reg, 4000);
+    assert_sleep_is_transparent(scenario::bench_combs(&reg, 6_000).unwrap(), &reg, 4000);
+}
+
+#[test]
+fn jammed_bores_and_branches_sleep() {
+    let reg = reg();
+    let mut w = scenario::bench_combs(&reg, 6_000).unwrap();
+    for _ in 0..4000 {
+        w.step(&reg);
+    }
+    let segs = w.segments().count();
+    let drills = w
+        .buildings()
+        .iter()
+        .filter(|(_, b)| b.tag == ferrustry_sim::KindTag::Drill)
+        .count();
+    assert!(
+        w.awake_segments() * 2 < segs,
+        "awake {} of {segs} segments",
+        w.awake_segments()
+    );
+    assert!(
+        w.awake_drills() * 2 < drills,
+        "awake {} of {drills} drills",
+        w.awake_drills()
+    );
+}
+
+#[test]
 fn blocked_belts_fall_asleep_and_wake_on_unblock() {
     let reg = reg();
     let ids = BaseIds::resolve(&reg).unwrap();

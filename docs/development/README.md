@@ -19,7 +19,12 @@ cargo run --release -p ferrustry-headless -- resume slice.fsave --ticks 1000
 cargo run --release -p ferrustry-headless -- save-check
 FERRUSTRY_COMMIT=$(git rev-parse --short HEAD) cargo run --release -p ferrustry-headless -- bench b2 --conveyors 10000 --out bench.json
 cargo bench -p ferrustry-sim
+scripts/bench-suite.sh          # полный набор с медианами (Windows: scripts/bench-suite.ps1)
 ```
+
+## Требования к CPU
+На x86_64 сборка нацелена на AVX2 (x86-64-v3, `.cargo/config.toml`, решение D-14). На ARM
+(Apple Silicon) используется базовый уровень aarch64 (NEON всегда есть).
 
 ## Правила кода
 - Симуляция (`ferrustry-sim`) не зависит от графики, сети, времени и потоков; меняется только
