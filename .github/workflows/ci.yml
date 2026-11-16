@@ -35,10 +35,24 @@ jobs:
           cargo run --release -p ferrustry-headless -- bench b1 --ticks 1000 --out bench-b1-${{ matrix.os }}.json
           cargo run --release -p ferrustry-headless -- bench b2 --ticks 1000 --out bench-b2-${{ matrix.os }}.json
           cargo run --release -p ferrustry-headless -- bench b2-comb --ticks 1000 --out bench-b2-comb-${{ matrix.os }}.json
+      - name: Bench script (Windows PowerShell 5.1, quick)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\bench-suite.ps1 -Quick
+      - name: Bench script (bash, quick)
+        if: runner.os != 'Windows'
+        run: scripts/bench-suite.sh --quick
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ matrix.os }}
           path: bench-*.json
+
+  scripts-ascii:
+    # Windows PowerShell 5.1 reads BOM-less .ps1 as ANSI: non-ASCII text breaks parsing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: "! LC_ALL=C grep -nP '[^\\x00-\\x7F]' scripts/*.ps1"
 
   deny:
     runs-on: ubuntu-latest
