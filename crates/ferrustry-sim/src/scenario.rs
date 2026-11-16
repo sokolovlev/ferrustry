@@ -335,7 +335,7 @@ impl RandomBuilder {
     /// Команды для тика `tick` (каждый третий тик — одна постройка или снос).
     pub fn commands(&mut self, tick: u64) -> Vec<Command> {
         let mut cmds = Vec::new();
-        if tick % 3 == 0 {
+        if tick.is_multiple_of(3) {
             let p = TilePos::new(
                 self.rng.below(self.size) as i32,
                 self.rng.below(self.size) as i32,
@@ -353,4 +353,113 @@ impl RandomBuilder {
         }
         cmds
     }
+}
+
+/// Демо-карта для клиента: базальт с участками пепла и шлаковыми озёрами, пятна железа и угля,
+/// стартовая база (вертикальный срез) в центре.
+pub fn demo_map(reg: &ContentRegistry, seed: u64) -> Result<World, ScenarioError> {
+    let ids = BaseIds::resolve(reg)?;
+    let ash = reg
+        .floor_by_name("ash")
+        .ok_or(ScenarioError::MissingContent("ash"))?;
+    let slag = reg
+        .floor_by_name("slag_pool")
+        .ok_or(ScenarioError::MissingContent("slag_pool"))?;
+    let carbon = reg
+        .ore_by_name("carbon_seam")
+        .ok_or(ScenarioError::MissingContent("carbon_seam"))?;
+    let (w, h) = (192i32, 128i32);
+    let mut world = World::new(reg, w as u32, h as u32, ids.basalt, seed);
+    let mut rng = crate::rng::Rng::new(seed ^ 0xD3A0);
+    let (cx0, cy0) = (w / 2 - 10, h / 2 - 4);
+    let near_base = |x: i32, y: i32| (x - cx0 - 10).abs() < 18 && (y - cy0 - 2).abs() < 12;
+    let blob = |world: &mut World,
+                rng: &mut crate::rng::Rng,
+                f: &mut dyn FnMut(&mut World, TilePos),
+                r_min: u32,
+                r_max: u32| {
+        let (bx, by) = (rng.below(w as u32) as i32, rng.below(h as u32) as i32);
+        let r = (r_min + rng.below(r_max - r_min + 1)) as i32;
+        for y in by - r..=by + r {
+            for x in bx - r..=bx + r {
+                let d2 = (x - bx).pow(2) + (y - by).pow(2);
+                let jitter = rng.below(3) as i32;
+                if d2 <= (r - 1 + jitter).pow(2)
+                    && x >= 0
+                    && y >= 0
+                    && x < w
+                    && y < h
+                    && !near_base(x, y)
+                {
+                    f(world, TilePos::new(x, y));
+                }
+            }
+        }
+    };
+    for _ in 0..14 {
+        blob(
+            &mut world,
+            &mut rng,
+            &mut |wd, p| wd.set_floor(p, ash),
+            4,
+            9,
+        );
+    }
+    for _ in 0..5 {
+        blob(
+            &mut world,
+            &mut rng,
+            &mut |wd, p| wd.set_floor(p, slag),
+            2,
+            4,
+        );
+    }
+    for _ in 0..10 {
+        let ore = ids.iron_vein;
+        blob(
+            &mut world,
+            &mut rng,
+            &mut |wd, p| wd.set_ore(p, Some(ore)),
+            2,
+            4,
+        );
+    }
+    for _ in 0..6 {
+        blob(
+            &mut world,
+            &mut rng,
+            &mut |wd, p| wd.set_ore(p, Some(carbon)),
+            2,
+            3,
+        );
+    }
+    // стартовая база — вертикальный срез, сдвинутый в центр
+    for y in 4..6 {
+        for x in 4..8 {
+            world.set_ore(TilePos::new(cx0 + x, cy0 + y), Some(ids.iron_vein));
+        }
+    }
+    let at = |x: i32, y: i32| (cx0 + x, cy0 + y);
+    let mut cmds = Vec::new();
+    for (x, y) in [at(4, 4), at(6, 4)] {
+        cmds.push(place(ids.bore, x, y, Dir::Right));
+    }
+    for x in 4..12 {
+        let (px, py) = at(x, 3);
+        cmds.push(place(ids.conveyor, px, py, Dir::Right));
+    }
+    let (sx, sy) = at(12, 3);
+    cmds.push(place(ids.smelter, sx, sy, Dir::Right));
+    for x in [12, 13] {
+        let (tx, ty) = at(x, 5);
+        cmds.push(place(ids.wind_turbine, tx, ty, Dir::Right));
+    }
+    for x in 14..18 {
+        let (px, py) = at(x, 3);
+        cmds.push(place(ids.conveyor, px, py, Dir::Right));
+    }
+    let (kx, ky) = at(18, 2);
+    cmds.push(place(ids.core, kx, ky, Dir::Right));
+    build(&mut world, reg, &cmds)?;
+    Ok(world)
 }

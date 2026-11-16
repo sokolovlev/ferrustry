@@ -372,23 +372,9 @@ impl World {
         origin: TilePos,
         rot: Dir,
     ) -> Result<BuildingId, CommandError> {
-        let def = reg
-            .blocks()
-            .get(usize::from(block.0))
-            .ok_or(CommandError::UnknownBlock)?;
+        self.can_place(reg, block, origin)?;
+        let def = reg.block(block);
         let size = i32::from(def.size);
-        for dy in 0..size {
-            for dx in 0..size {
-                let p = TilePos::new(origin.x + dx, origin.y + dy);
-                let floor = self.grid.floor(p).ok_or(CommandError::OutOfBounds)?;
-                if !reg.floor(floor).buildable {
-                    return Err(CommandError::NotBuildable);
-                }
-                if self.grid.building(p).is_some() {
-                    return Err(CommandError::Occupied);
-                }
-            }
-        }
 
         let tag = match def.kind {
             BlockKind::Conveyor { .. } => KindTag::Conveyor,
@@ -476,6 +462,33 @@ impl World {
             self.rebuild_conveyors_around(reg, origin, &[]);
         }
         Ok(id)
+    }
+
+    /// Можно ли поставить постройку (без изменения мира).
+    pub fn can_place(
+        &self,
+        reg: &ContentRegistry,
+        block: BlockId,
+        origin: TilePos,
+    ) -> Result<(), CommandError> {
+        let def = reg
+            .blocks()
+            .get(usize::from(block.0))
+            .ok_or(CommandError::UnknownBlock)?;
+        let size = i32::from(def.size);
+        for dy in 0..size {
+            for dx in 0..size {
+                let p = TilePos::new(origin.x + dx, origin.y + dy);
+                let floor = self.grid.floor(p).ok_or(CommandError::OutOfBounds)?;
+                if !reg.floor(floor).buildable {
+                    return Err(CommandError::NotBuildable);
+                }
+                if self.grid.building(p).is_some() {
+                    return Err(CommandError::Occupied);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Самая распространённая руда под постройкой (при равенстве — меньший ID ресурса).

@@ -1,0 +1,20 @@
+[package]
+name = "ferrustry-render"
+description = "wgpu 2D renderer for Ferrustry: sprite atlas, instanced batching, camera"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ferrustry-content.workspace = true
+ferrustry-sim.workspace = true
+wgpu = "30"
+bytemuck = "1"
+pollster = "1"
+png = "0.18"
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -22,6 +22,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Linux GPU and window runtime (lavapipe, X11)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 xvfb
       - run: cargo fmt --all -- --check
       - run: cargo check --workspace
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -29,6 +32,17 @@ jobs:
       - run: cargo build --workspace --release
       - name: Determinism and save check
         run: cargo run --release -p ferrustry-headless -- save-check
+      - name: Client screenshot (offscreen, lavapipe)
+        if: runner.os == 'Linux'
+        run: cargo run --release -p ferrustry-client -- --screenshot client.png --ticks 600 --zoom 40 --center 96,61
+      - name: Client window smoke test (Xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1280x720x24" cargo run --release -p ferrustry-client -- --frames 120
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: client-screenshot
+          path: client.png
       - name: Replay record + verify
         shell: bash
         run: |

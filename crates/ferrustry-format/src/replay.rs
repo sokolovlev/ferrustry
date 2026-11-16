@@ -118,7 +118,7 @@ impl Recorder {
         let results = world.tick(reg, commands);
         let t = world.tick_count();
         self.replay.meta.end_tick = t;
-        if (t - self.replay.meta.start_tick) % self.replay.meta.checkpoint_every == 0 {
+        if (t - self.replay.meta.start_tick).is_multiple_of(self.replay.meta.checkpoint_every) {
             self.replay.checkpoints.push(Checkpoint {
                 tick: t,
                 hash: state_hash(world),

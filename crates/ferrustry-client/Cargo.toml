@@ -1,0 +1,23 @@
+[package]
+name = "ferrustry-client"
+description = "Ferrustry game client: window, input, fixed-step loop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ferrustry"
+path = "src/main.rs"
+
+[dependencies]
+ferrustry-content.workspace = true
+ferrustry-sim.workspace = true
+ferrustry-format.workspace = true
+ferrustry-render = { path = "../ferrustry-render" }
+winit = "0.30"
+pollster = "1"
+
+[lints]
+workspace = true

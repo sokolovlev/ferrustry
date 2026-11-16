@@ -33,3 +33,17 @@ scripts/bench-suite.sh          # полный набор с медианами 
   в логике, влияющей на состояние.
 - Любая новая система — с тестом на сохранение ресурсов (`assert_conserved`) и `World::validate`.
 - `unwrap`/`expect` в runtime-коде запрещены lint'ом; в тестах разрешены.
+
+## Клиент
+
+```bash
+cargo run --release -p ferrustry-client                         # окно
+cargo run --release -p ferrustry-client -- --screenshot shot.png --ticks 600 --zoom 40 --center 96,61
+cargo run --release -p ferrustry-client -- --frames 120         # дымовой тест окна
+```
+
+Linux: нужны `libvulkan1` (или Mesa) и `libxkbcommon-x11-0`. Без GPU работает программный
+Vulkan (`mesa-vulkan-drivers`, lavapipe) — так рендер проверяется в CI.
+
+Тест `ferrustry-render/tests/offscreen.rs` рендерит кадр на реальном GPU и проверяет пиксели
+(цвета бренда, эмблему ядра); при отсутствии адаптера пропускается с сообщением `SKIPPED`.
