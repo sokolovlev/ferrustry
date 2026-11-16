@@ -2,3 +2,4 @@
 *.fsave
 bench-*.json
 /bench-results
+*.freplay

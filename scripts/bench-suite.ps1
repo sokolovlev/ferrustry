@@ -34,7 +34,7 @@ $rustc = & rustc --version
     "cpu: $($cpu.Name) cores=$($cpu.NumberOfCores) threads=$($cpu.NumberOfLogicalProcessors) maxMHz=$($cpu.MaxClockSpeed)",
     "L2KB: $($cpu.L2CacheSize) L3KB: $($cpu.L3CacheSize)",
     "ramGB: $([math]::Round($os.TotalVisibleMemorySize / 1MB, 1))"
-) | Set-Content -Encoding ASCII (Join-Path $dir "machine.txt")
+) | Set-Content -Encoding UTF8 (Join-Path $dir "machine.txt")
 
 $env:FERRUSTRY_COMMIT = $commit
 $suiteArgs = @("suite", "--runs", "3", "--out", (Join-Path $dir "suite.json"))

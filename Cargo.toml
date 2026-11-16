@@ -20,6 +20,7 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 thiserror = "2"
 zstd = "0.13"
 crc32fast = "1"
+memory-stats = "1"
 criterion = { version = "0.8", default-features = false }
 
 [workspace.lints.rust]

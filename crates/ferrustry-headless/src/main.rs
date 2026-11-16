@@ -6,7 +6,9 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use ferrustry_content::ContentRegistry;
-use ferrustry_format::{read_save, write_save};
+use ferrustry_format::{
+    PlayOutcome, Recorder, play, read_replay, read_save, write_replay, write_save,
+};
 use ferrustry_sim::{TICKS_PER_SECOND, World, scenario, state_hash};
 use serde::Serialize;
 
@@ -22,6 +24,9 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless save-check [--ticks N]           save → load → сравнить продолжение
   ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
   ferrustry-headless suite [--runs N] [--quick] [--out FILE]  полный набор бенчмарков (медианы)
+  ferrustry-headless record --out FILE [--seed S] [--ticks N] [--size N] [--checkpoint-every N]
+                                                    записать партию (случайная стройка)
+  ferrustry-headless replay FILE                      воспроизвести и сверить контрольные точки
 ";
 
 struct Args {
@@ -154,6 +159,65 @@ fn real_main(args: &mut Args) -> Result<(), String> {
                 std::fs::write(&path, json).map_err(|e| format!("{path}: {e}"))?;
             }
             Ok(())
+        }
+        "record" => {
+            let seed = args.number("--seed", 1)?;
+            let ticks = args.number("--ticks", 3000)?;
+            let size = args.number("--size", 32)?;
+            let every = args.number("--checkpoint-every", 100)?;
+            let out = args.value("--out")?.ok_or("record requires --out FILE")?;
+            args.finish()?;
+            let size = u32::try_from(size).map_err(|e| e.to_string())?;
+            let (mut w, mut builder) =
+                scenario::RandomBuilder::new(&reg, size, seed).map_err(|e| e.to_string())?;
+            let mut rec = Recorder::new(&w, every);
+            for _ in 0..ticks {
+                let cmds = builder.commands(w.tick_count());
+                rec.tick(&mut w, &reg, &cmds);
+            }
+            let replay = rec.finish(&w);
+            let bytes = write_replay(&replay, &reg).map_err(|e| e.to_string())?;
+            std::fs::write(&out, &bytes).map_err(|e| format!("{out}: {e}"))?;
+            println!(
+                "recorded {} ticks, {} command ticks, {} checkpoints, {} bytes -> {out}",
+                replay.ticks(),
+                replay.inputs().len(),
+                replay.checkpoints().len(),
+                bytes.len()
+            );
+            println!("final hash: {:016x}", state_hash(&w));
+            Ok(())
+        }
+        "replay" => {
+            let path = args.positional().ok_or("replay requires FILE")?;
+            args.finish()?;
+            let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+            let replay = read_replay(&bytes, &reg).map_err(|e| e.to_string())?;
+            let t = Instant::now();
+            let (outcome, _) = play(&replay, &reg);
+            match outcome {
+                PlayOutcome::Verified {
+                    checkpoints,
+                    final_hash,
+                } => {
+                    println!(
+                        "OK: {} ticks, {checkpoints} checkpoints verified in {:.1} ms",
+                        replay.ticks(),
+                        t.elapsed().as_secs_f64() * 1e3
+                    );
+                    println!("final hash: {final_hash:016x}");
+                    Ok(())
+                }
+                PlayOutcome::Diverged {
+                    tick,
+                    expected,
+                    actual,
+                    last_good_tick,
+                } => Err(format!(
+                    "DESYNC at tick {tick}: expected {expected:016x}, got {actual:016x}; last matching checkpoint: {}",
+                    last_good_tick.map_or("none".to_owned(), |t| t.to_string())
+                )),
+            }
         }
         "suite" => {
             let runs = args.number("--runs", 3)?;
@@ -327,11 +391,16 @@ fn bench(
     })
 }
 
-/// Пиковый RSS (Linux). На других ОС пока не измеряется.
+/// Пиковый RSS на Linux (`VmHWM`); на остальных ОС — текущий RSS в конце прогона
+/// (после прогрева и измерения он практически равен пиковому для этих сценариев).
 fn peak_rss_kib() -> Option<u64> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    let line = status.lines().find(|l| l.starts_with("VmHWM:"))?;
-    line.split_whitespace().nth(1)?.parse().ok()
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status")
+        && let Some(line) = status.lines().find(|l| l.starts_with("VmHWM:"))
+        && let Some(v) = line.split_whitespace().nth(1).and_then(|v| v.parse().ok())
+    {
+        return Some(v);
+    }
+    memory_stats::memory_stats().map(|m| (m.physical_mem / 1024) as u64)
 }
 
 fn cpu_model() -> Option<String> {

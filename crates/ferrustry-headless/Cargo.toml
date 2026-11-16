@@ -13,6 +13,7 @@ ferrustry-sim.workspace = true
 ferrustry-format.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+memory-stats.workspace = true
 
 [lints]
 workspace = true

@@ -2,7 +2,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, missing_docs)]
 
 use ferrustry_content::ContentRegistry;
-use ferrustry_sim::rng::Rng;
 use ferrustry_sim::scenario::{self, BaseIds};
 use ferrustry_sim::{Command, CommandError, Dir, TilePos, World, state_hash};
 
@@ -533,41 +532,11 @@ fn blocked_belts_fall_asleep_and_wake_on_unblock() {
 /// Случайная стройка и снос: инварианты держатся, результат воспроизводим.
 fn random_build(seed: u64) -> (u64, World) {
     let reg = reg();
-    let (mut w, ids) = empty(&reg, 24, 24);
-    for y in 0..24 {
-        for x in 0..24 {
-            if (x * 7 + y * 3) % 5 == 0 {
-                w.set_ore(TilePos::new(x, y), Some(ids.iron_vein));
-            }
-        }
-    }
-    let blocks = [
-        ids.conveyor,
-        ids.conveyor,
-        ids.conveyor,
-        ids.bore,
-        ids.core,
-        ids.smelter,
-        ids.wind_turbine,
-    ];
-    let mut rng = Rng::new(seed);
+    let (mut w, mut builder) = scenario::RandomBuilder::new(&reg, 24, seed).unwrap();
     let mut twin = w.clone();
     twin.set_sleep_enabled(false);
     for t in 0..3000u32 {
-        let mut cmds = Vec::new();
-        if t % 3 == 0 {
-            let p = TilePos::new(rng.below(24) as i32, rng.below(24) as i32);
-            if rng.below(4) == 0 {
-                cmds.push(Command::Remove { at: p });
-            } else {
-                let block = blocks[rng.below(blocks.len() as u32) as usize];
-                cmds.push(Command::Place {
-                    block,
-                    origin: p,
-                    rot: Dir::ALL[rng.below(4) as usize],
-                });
-            }
-        }
+        let cmds = builder.commands(u64::from(t));
         let ra = w.tick(&reg, &cmds);
         let rb = twin.tick(&reg, &cmds);
         assert_eq!(ra, rb);

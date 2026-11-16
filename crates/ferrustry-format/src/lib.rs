@@ -13,6 +13,12 @@
 
 use std::io::Read;
 
+mod replay;
+
+pub use replay::{
+    Checkpoint, PlayOutcome, Recorder, Replay, TickInput, play, read_replay, write_replay,
+};
+
 use ferrustry_content::{ContentRegistry, NameTable};
 use ferrustry_sim::World;
 
@@ -88,6 +94,14 @@ pub enum FormatError {
     /// Состояние мира в файле не прошло проверку целостности.
     #[error("invalid world state: {0}")]
     InvalidWorld(String),
+    /// Replay записан другой версией симуляции.
+    #[error("replay was recorded by simulation {file}, this is {current}")]
+    SimVersionMismatch {
+        /// Версия в файле.
+        file: String,
+        /// Текущая версия.
+        current: String,
+    },
     /// Ошибка кодирования.
     #[error("encoding error: {0}")]
     Encoding(#[from] postcard::Error),

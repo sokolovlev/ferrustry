@@ -288,3 +288,69 @@ pub fn bench_megabase(reg: &ContentRegistry, conveyors: u32) -> Result<World, Sc
     }
     Ok(w)
 }
+
+/// Генератор случайной стройки и сноса — для тестов, replay и стресс-прогонов.
+#[derive(Debug, Clone)]
+pub struct RandomBuilder {
+    rng: crate::rng::Rng,
+    blocks: Vec<BlockId>,
+    size: u32,
+}
+
+impl RandomBuilder {
+    /// Мир `size×size` с узором железной руды и генератор команд с заданным seed.
+    pub fn new(
+        reg: &ContentRegistry,
+        size: u32,
+        seed: u64,
+    ) -> Result<(World, Self), ScenarioError> {
+        let ids = BaseIds::resolve(reg)?;
+        let mut w = World::new(reg, size, size, ids.basalt, seed);
+        for y in 0..size as i32 {
+            for x in 0..size as i32 {
+                if (x * 7 + y * 3) % 5 == 0 {
+                    w.set_ore(TilePos::new(x, y), Some(ids.iron_vein));
+                }
+            }
+        }
+        let blocks = vec![
+            ids.conveyor,
+            ids.conveyor,
+            ids.conveyor,
+            ids.bore,
+            ids.core,
+            ids.smelter,
+            ids.wind_turbine,
+        ];
+        Ok((
+            w,
+            Self {
+                rng: crate::rng::Rng::new(seed),
+                blocks,
+                size,
+            },
+        ))
+    }
+
+    /// Команды для тика `tick` (каждый третий тик — одна постройка или снос).
+    pub fn commands(&mut self, tick: u64) -> Vec<Command> {
+        let mut cmds = Vec::new();
+        if tick % 3 == 0 {
+            let p = TilePos::new(
+                self.rng.below(self.size) as i32,
+                self.rng.below(self.size) as i32,
+            );
+            if self.rng.below(4) == 0 {
+                cmds.push(Command::Remove { at: p });
+            } else {
+                let block = self.blocks[self.rng.below(self.blocks.len() as u32) as usize];
+                cmds.push(Command::Place {
+                    block,
+                    origin: p,
+                    rot: Dir::ALL[self.rng.below(4) as usize],
+                });
+            }
+        }
+        cmds
+    }
+}

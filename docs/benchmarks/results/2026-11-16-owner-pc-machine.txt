@@ -1,0 +1,6 @@
+commit: 70734c7
+rustc: rustc 1.100.0 (0ef1bc386 2026-11-09)
+os: Windows 10 (10.0.19045)
+cpu: Intel(R) Core(TM) i3-8350K CPU @ 4.00GHz cores=4 threads=4 maxMHz=4008
+L2KB: 1024 L3KB: 8192
+ramGB: 7.9
