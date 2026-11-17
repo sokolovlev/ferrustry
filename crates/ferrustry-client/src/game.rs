@@ -2069,7 +2069,7 @@ mod tests {
         g.handle(Input::MouseDown(Button::Left));
         click_tile(&mut g, TilePos::new(94, 61));
         g.handle(Input::MouseUp(Button::Left));
-        let sch = g.paste.clone().expect("copied");
+        let sch = g.paste.clone().unwrap();
         assert_eq!((sch.width, sch.height), (4, 1));
         // вставка выше; призраки видны
         click_tile(&mut g, TilePos::new(92, 68));
