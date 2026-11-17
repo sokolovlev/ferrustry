@@ -19,6 +19,14 @@ pub struct PowerNet {
     pub demand: u64,
     /// Удовлетворение спроса в тысячных (0..=1000).
     pub satisfaction: u32,
+    /// Энергия в батареях сети (после этого тика).
+    pub stored: u64,
+    /// Суммарная ёмкость батарей сети.
+    pub capacity: u64,
+    /// Поток батарей за тик: > 0 — заряд, < 0 — разряд.
+    pub battery_flow: i64,
+    /// Остаток потока при распределении по батареям (служебное).
+    pub(crate) pending: i64,
 }
 
 /// Состояние энергосистемы.
@@ -119,6 +127,10 @@ impl World {
         }
         self.power.nets = (0..count)
             .map(|_| PowerNet {
+                stored: 0,
+                capacity: 0,
+                battery_flow: 0,
+                pending: 0,
                 production: 0,
                 demand: 0,
                 satisfaction: 0,
@@ -160,11 +172,73 @@ impl World {
                 net.demand += u64::from(power_use);
             }
         }
+        // батареи: суммарный запас и ёмкость по сетям
         for n in &mut self.power.nets {
-            n.satisfaction = match (n.production * 1000).checked_div(n.demand) {
-                None => 1000,
-                Some(ratio) => u32::try_from(ratio.min(1000)).unwrap_or(1000),
+            n.stored = 0;
+            n.capacity = 0;
+            n.battery_flow = 0;
+        }
+        for (row, owner) in self.batteries.rows.iter().zip(&self.batteries.owners) {
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
             };
+            let BlockKind::Battery { capacity } = reg.block(b.block).kind else {
+                continue;
+            };
+            if let Some(net) = b
+                .power_net
+                .and_then(|n| self.power.nets.get_mut(n as usize))
+            {
+                net.stored += row.stored;
+                net.capacity += u64::from(capacity);
+            }
+        }
+        for n in &mut self.power.nets {
+            if n.production >= n.demand {
+                n.satisfaction = 1000;
+                let charge = (n.production - n.demand).min(n.capacity - n.stored.min(n.capacity));
+                n.battery_flow = i64::try_from(charge).unwrap_or(0);
+            } else {
+                let deficit = n.demand - n.production;
+                let drain = deficit.min(n.stored);
+                n.battery_flow = -i64::try_from(drain).unwrap_or(0);
+                let available = n.production + drain;
+                n.satisfaction =
+                    u32::try_from((available * 1000 / n.demand).min(1000)).unwrap_or(1000);
+            }
+        }
+        // распределить заряд/разряд по батареям сети в порядке таблицы (детерминированно)
+        for n in &mut self.power.nets {
+            n.stored = 0;
+            n.pending = n.battery_flow;
+        }
+        for r in 0..self.batteries.len() {
+            let owner = self.batteries.owners[r];
+            let Some(b) = self.buildings.get(owner) else {
+                continue;
+            };
+            let BlockKind::Battery { capacity } = reg.block(b.block).kind else {
+                continue;
+            };
+            let Some(net) = b
+                .power_net
+                .and_then(|n| self.power.nets.get_mut(n as usize))
+            else {
+                continue;
+            };
+            let row = &mut self.batteries.rows[r];
+            if net.pending > 0 {
+                let want = u64::try_from(net.pending).unwrap_or(0);
+                let put = want.min(u64::from(capacity).saturating_sub(row.stored));
+                row.stored += put;
+                net.pending -= i64::try_from(put).unwrap_or(0);
+            } else if net.pending < 0 {
+                let want = net.pending.unsigned_abs();
+                let take = want.min(row.stored);
+                row.stored -= take;
+                net.pending += i64::try_from(take).unwrap_or(0);
+            }
+            net.stored += row.stored;
         }
     }
 }

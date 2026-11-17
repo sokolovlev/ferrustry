@@ -27,6 +27,14 @@ pub enum KindTag {
     PowerNode,
     /// Ядро.
     Core,
+    /// Разветвитель.
+    Splitter,
+    /// Сортировщик.
+    Sorter,
+    /// Мост.
+    Bridge,
+    /// Батарея.
+    Battery,
 }
 
 /// Общие данные постройки.

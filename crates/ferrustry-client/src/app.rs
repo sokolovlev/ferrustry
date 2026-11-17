@@ -207,6 +207,7 @@ fn map_key(code: KeyCode) -> Option<Key> {
         KeyCode::Digit7 => Key::Digit(7),
         KeyCode::Digit8 => Key::Digit(8),
         KeyCode::Digit9 => Key::Digit(9),
+        KeyCode::Digit0 => Key::Digit(10),
         KeyCode::KeyR => Key::Rotate,
         KeyCode::Space => Key::Pause,
         KeyCode::Escape => Key::Cancel,

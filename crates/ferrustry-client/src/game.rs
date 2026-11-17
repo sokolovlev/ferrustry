@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 use ferrustry_content::{BlockId, BlockKind, ContentRegistry};
 use ferrustry_render::atlas::palette;
 use ferrustry_render::{Atlas, Camera, Ghost, Hud, SpriteBatch, SpriteTable, build_world, rgba};
-use ferrustry_sim::{Command, Dir, TICKS_PER_SECOND, TilePos, World, scenario};
+use ferrustry_sim::{
+    Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePos, World, scenario,
+};
 
 use crate::ui::{Rect, Ui, text_width};
 
@@ -132,6 +134,7 @@ pub struct Game {
     ui_scale: f32,
     show_help: bool,
     quicksave_exists: bool,
+    inspected: Option<TilePos>,
 }
 
 /// Скользящий счётчик частоты.
@@ -159,10 +162,14 @@ impl Game {
     pub fn new(reg: ContentRegistry, world: World, viewport: [f32; 2]) -> Self {
         let order = [
             "conveyor",
+            "splitter",
+            "sorter",
+            "bridge_conveyor",
             "bore",
             "smelter",
             "steel_forge",
             "wind_turbine",
+            "battery",
             "power_node",
             "core",
         ];
@@ -196,6 +203,7 @@ impl Game {
             ui: Ui::default(),
             ui_scale: 1.0,
             show_help: false,
+            inspected: None,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -261,7 +269,7 @@ impl Game {
                 self.paused = false;
                 self.screen = Screen::Playing;
                 self.message = Some((
-                    "CHOOSE A BUILDING BELOW (OR 1-7), THEN CLICK THE MAP".into(),
+                    "CHOOSE A BUILDING BELOW (OR 1-9, 0), THEN CLICK THE MAP".into(),
                     8.0,
                 ));
             }
@@ -310,7 +318,13 @@ impl Game {
                 if self.selected_block().is_some() {
                     self.drag = Some(Drag::Build(self.cursor_tile()));
                 } else {
-                    self.notify("CHOOSE A BUILDING BELOW (OR 1-7)");
+                    let t = self.cursor_tile();
+                    if self.world.grid().building(t).is_some() {
+                        self.inspected = Some(t); // клик по постройке без инструмента — осмотр
+                    } else {
+                        self.inspected = None;
+                        self.notify("CHOOSE A BUILDING BELOW (OR 1-9, 0)");
+                    }
                 }
             }
             Input::MouseDown(Button::Right) => {
@@ -369,9 +383,10 @@ impl Game {
             (Screen::Playing, Key::Cancel) => {
                 if self.show_help {
                     self.show_help = false;
-                } else if self.tool.is_some() || self.drag.is_some() {
+                } else if self.tool.is_some() || self.drag.is_some() || self.inspected.is_some() {
                     self.tool = None;
                     self.drag = None;
+                    self.inspected = None;
                 } else {
                     self.screen = Screen::PauseMenu;
                 }
@@ -492,21 +507,32 @@ impl Game {
     fn queue(&mut self, cmds: Vec<Command>) {
         if self.paused {
             // на паузе стройка применяется сразу, без хода симуляции
-            let mut failed = 0;
-            for c in &cmds {
-                failed += usize::from(self.world.apply(&self.reg, c).is_err());
-            }
-            self.report_failures(failed, cmds.len());
+            let results: Vec<_> = cmds
+                .iter()
+                .map(|c| self.world.apply(&self.reg, c))
+                .collect();
+            self.report_failures(&results);
         } else {
             self.pending.extend(cmds);
         }
     }
 
-    fn report_failures(&mut self, failed: usize, total: usize) {
-        if failed > 0 && total == 1 {
-            self.notify("CANNOT BUILD HERE");
-        } else if failed > 0 {
-            self.notify(format!("{failed} OF {total} NOT PLACED"));
+    fn report_failures(&mut self, results: &[Result<(), CommandError>]) {
+        let failed = results.iter().filter(|r| r.is_err()).count();
+        let Some(Err(first)) = results.iter().find(|r| r.is_err()) else {
+            return;
+        };
+        let why = match first {
+            CommandError::NotEnough(item) => format!("NOT ENOUGH {}", self.item_name(*item)),
+            CommandError::Occupied => "TILE IS OCCUPIED".to_owned(),
+            CommandError::NotBuildable => "CANNOT BUILD ON THIS FLOOR".to_owned(),
+            CommandError::OutOfBounds => "OUTSIDE THE MAP".to_owned(),
+            other => format!("{other}").to_uppercase(),
+        };
+        if results.len() == 1 {
+            self.notify(why);
+        } else {
+            self.notify(format!("{failed} OF {} NOT PLACED: {why}", results.len()));
         }
     }
 
@@ -540,8 +566,7 @@ impl Game {
             while self.accumulator >= step && ticks < 8 {
                 let cmds = std::mem::take(&mut self.pending);
                 let results = self.world.tick(&self.reg, &cmds);
-                let failed = results.iter().filter(|r| r.is_err()).count();
-                self.report_failures(failed, results.len());
+                self.report_failures(&results);
                 self.accumulator -= step;
                 ticks += 1;
             }
@@ -856,14 +881,23 @@ impl Game {
                 [r[0] + r[2] / 2.0, vh - (r[1] + r[3] / 2.0)],
                 [r[2] - 2.0 * pad, r[3] - 2.0 * pad],
                 0.0,
-                [1.0; 4],
+                if self.affordable(b) {
+                    [1.0; 4]
+                } else {
+                    [0.3, 0.3, 0.32, 1.0]
+                },
             );
+            let key = match i {
+                0..=8 => (i + 1).to_string(),
+                9 => "0".to_owned(),
+                _ => String::new(),
+            };
             hud.text(
                 atlas,
                 r[0] + 4.0 * u,
                 r[1] + 4.0 * u,
                 2.0 * u,
-                &(i + 1).to_string(),
+                &key,
                 if selected { orange } else { titanium },
             );
             if ui.clicked(r) {
@@ -880,7 +914,7 @@ impl Game {
                 self.block_info(b),
                 self.rot
             ),
-            (None, None) => "CHOOSE A BUILDING (CLICK OR 1-7), THEN CLICK THE MAP".to_owned(),
+            (None, None) => "CHOOSE A BUILDING (CLICK OR 1-9, 0), THEN CLICK THE MAP".to_owned(),
         };
         let r0 = self.hotbar_rect(0);
         let lw = text_width(&label, 2.0 * u);
@@ -936,11 +970,14 @@ impl Game {
             );
         }
 
+        self.inspector(ui, atlas, table, hud);
+
         if self.show_help {
             let lines = [
                 "CONTROLS",
                 "",
-                "1-7 / CLICK PANEL   CHOOSE BUILDING",
+                "1-9, 0 / CLICK      CHOOSE BUILDING",
+                "CLICK A BUILDING    INSPECT (SET SORTER FILTER)",
                 "LEFT CLICK          BUILD",
                 "LEFT DRAG           BUILD A LINE (BELTS TURN)",
                 "R                   ROTATE",
@@ -976,11 +1013,187 @@ impl Game {
         }
     }
 
-    /// Краткое описание постройки для подсказки.
+    /// Панель осмотра выбранной постройки (слева); у сортировщика — выбор фильтра.
+    fn inspector(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+        let Some(at) = self.inspected else { return };
+        let Some(ins) = self.world.inspect(&self.reg, at) else {
+            self.inspected = None; // постройку снесли
+            return;
+        };
+        let u = self.u();
+        let white = table.white;
+        let steel = rgba(palette::STEEL_WHITE);
+        let orange = rgba(palette::FORGE_ORANGE);
+        let mut lines: Vec<String> = Vec::new();
+        let pct = |a: u64, b: u64| (a * 100).checked_div(b).unwrap_or(0);
+        match &ins.detail {
+            Detail::Conveyor { items_on_segment } => {
+                lines.push(format!("ITEMS ON SEGMENT {items_on_segment}"))
+            }
+            Detail::Drill {
+                ore,
+                ore_tiles,
+                buffer,
+            } => match ore {
+                Some(o) => {
+                    lines.push(format!("MINING {}", self.item_name(*o)));
+                    lines.push(format!("ORE TILES {ore_tiles}  BUFFER {buffer}"));
+                }
+                None => lines.push("NO ORE UNDER THIS BORE".to_owned()),
+            },
+            Detail::Crafter {
+                inputs,
+                outputs,
+                progress,
+                ready,
+            } => {
+                for (i, n) in inputs {
+                    lines.push(format!("IN  {:<11}{n:>4}", self.item_name(*i)));
+                }
+                for (i, n) in outputs {
+                    lines.push(format!("OUT {:<11}{n:>4}", self.item_name(*i)));
+                }
+                lines.push(format!("PROGRESS {}%", progress / 10));
+                if !ready {
+                    lines.push("WAITING FOR INPUT / OUTPUT SPACE".to_owned());
+                }
+            }
+            Detail::Core { items } => {
+                for (i, n) in items.iter().enumerate() {
+                    lines.push(format!(
+                        "{:<11}{n:>6}",
+                        self.reg.items()[i].name.replace('_', " ")
+                    ));
+                }
+            }
+            Detail::Generator { power } => lines.push(format!("OUTPUT {power} / TICK")),
+            Detail::PowerNode => lines.push("CONNECTS BUILDINGS IN RANGE".to_owned()),
+            Detail::Battery { stored, capacity } => {
+                lines.push(format!(
+                    "CHARGE {stored} / {capacity} ({}%)",
+                    pct(*stored, u64::from(*capacity))
+                ));
+            }
+            Detail::Splitter { item } => {
+                lines.push(format!(
+                    "HOLDING {}",
+                    item.map_or("NOTHING".to_owned(), |i| self.item_name(i))
+                ));
+            }
+            Detail::Sorter { item, filter } => {
+                lines.push(format!(
+                    "FILTER {}",
+                    filter.map_or("NONE".to_owned(), |i| self.item_name(i))
+                ));
+                lines.push(format!(
+                    "HOLDING {}",
+                    item.map_or("NOTHING".to_owned(), |i| self.item_name(i))
+                ));
+            }
+            Detail::Bridge { items, linked } => {
+                lines.push(if *linked {
+                    "LINKED: SENDING".to_owned()
+                } else {
+                    "END: OUTPUT FORWARD".to_owned()
+                });
+                lines.push(format!("BUFFER {}", items.len()));
+            }
+        }
+        if let Some(p) = &ins.power {
+            lines.push(format!(
+                "POWER {}%  +{} -{}",
+                p.satisfaction / 10,
+                p.production,
+                p.demand
+            ));
+            if p.capacity > 0 {
+                lines.push(format!("NET BATTERIES {} / {}", p.stored, p.capacity));
+            }
+        }
+        let title = self.reg.block(ins.block).name.replace('_', " ");
+        let s = 2.0 * u;
+        let row = 18.0 * u;
+        let sorter = matches!(ins.detail, Detail::Sorter { .. });
+        let n_items = self.reg.items().len();
+        let w = 300.0 * u;
+        let buttons_h = if sorter {
+            (n_items as f32 + 1.0) * (row + 6.0 * u) + 24.0 * u
+        } else {
+            0.0
+        };
+        let h = 44.0 * u + lines.len() as f32 * row + buttons_h;
+        let (x, y) = (8.0 * u, 74.0 * u);
+        ui.panel(hud, atlas, white, [x, y, w, h], [0.02, 0.025, 0.04, 0.9]);
+        hud.rect(atlas, white, [x, y, w, 3.0 * u], orange);
+        hud.text(atlas, x + 12.0 * u, y + 12.0 * u, s, &title, orange);
+        for (i, l) in lines.iter().enumerate() {
+            hud.text(
+                atlas,
+                x + 12.0 * u,
+                y + 36.0 * u + i as f32 * row,
+                s,
+                l,
+                steel,
+            );
+        }
+        if sorter {
+            let mut by = y + 36.0 * u + lines.len() as f32 * row + 12.0 * u;
+            hud.text(
+                atlas,
+                x + 12.0 * u,
+                by,
+                s,
+                "SET FILTER:",
+                rgba(palette::TITANIUM),
+            );
+            by += row;
+            let opts: Vec<Option<ferrustry_content::ItemId>> = std::iter::once(None)
+                .chain((0..n_items).map(|i| Some(ferrustry_content::ItemId(i as u16))))
+                .collect();
+            for (k, opt) in opts.into_iter().enumerate() {
+                let r = [
+                    x + 12.0 * u,
+                    by + k as f32 * (row + 6.0 * u),
+                    w - 24.0 * u,
+                    row + 2.0 * u,
+                ];
+                let label = opt.map_or("NONE".to_owned(), |i| self.item_name(i));
+                if ui.button(hud, atlas, white, r, &label, s, true) {
+                    self.queue(vec![Command::Configure { at, item: opt }]);
+                }
+            }
+        }
+    }
+
+    fn item_name(&self, i: ferrustry_content::ItemId) -> String {
+        self.reg.item(i).name.replace('_', " ").to_uppercase()
+    }
+
+    fn stacks(&self, v: &[ferrustry_content::ItemStack]) -> String {
+        v.iter()
+            .map(|s| format!("{} {}", s.count, self.item_name(s.item)))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    }
+
+    /// Хватает ли ресурсов на постройку (в песочнице — всегда).
+    fn affordable(&self, b: BlockId) -> bool {
+        if self.world.rules().infinite_resources {
+            return true;
+        }
+        let have = self.world.total_core_items();
+        self.reg
+            .block(b)
+            .cost
+            .iter()
+            .all(|s| have.get(usize::from(s.item.0)).copied().unwrap_or(0) >= u64::from(s.count))
+    }
+
+    /// Краткое описание постройки для подсказки (с ценой).
     fn block_info(&self, b: BlockId) -> String {
         let d = self.reg.block(b);
         let name = d.name.replace('_', " ");
-        match &d.kind {
+        let what = match &d.kind {
             BlockKind::Conveyor { .. } => format!("{name}: MOVES ITEMS"),
             BlockKind::Drill { .. } => format!("{name} {0}X{0}: MINES ORE UNDER IT", d.size),
             BlockKind::Crafter {
@@ -988,33 +1201,30 @@ impl Game {
                 outputs,
                 power_use,
                 ..
-            } => {
-                let fmt = |v: &Vec<ferrustry_content::ItemStack>| {
-                    v.iter()
-                        .map(|s| {
-                            format!(
-                                "{} {}",
-                                s.count,
-                                self.reg.item(s.item).name.replace('_', " ")
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" + ")
-                };
-                format!(
-                    "{name} {}X{}: {} -> {}, POWER {}",
-                    d.size,
-                    d.size,
-                    fmt(inputs),
-                    fmt(outputs),
-                    power_use
-                )
-            }
+            } => format!(
+                "{name} {}X{}: {} -> {}, POWER {}",
+                d.size,
+                d.size,
+                self.stacks(inputs),
+                self.stacks(outputs),
+                power_use
+            ),
             BlockKind::Generator { power } => format!("{name}: +{power} POWER"),
             BlockKind::PowerNode { range } => format!("{name}: LINKS POWER WITHIN {range} TILES"),
             BlockKind::Core { capacity } => {
                 format!("{name} {0}X{0}: STORES {capacity} OF EACH ITEM", d.size)
             }
+            BlockKind::Splitter => format!("{name}: SPLITS ITEMS TO THE OTHER 3 SIDES"),
+            BlockKind::Sorter => format!("{name}: FILTER STRAIGHT, REST SIDEWAYS"),
+            BlockKind::Bridge { range, .. } => {
+                format!("{name}: JUMPS {range} TILES TO NEXT BRIDGE")
+            }
+            BlockKind::Battery { capacity } => format!("{name}: STORES {capacity} POWER"),
+        };
+        if d.cost.is_empty() || self.world.rules().infinite_resources {
+            what
+        } else {
+            format!("{what}  COST {}", self.stacks(&d.cost))
         }
     }
 
@@ -1124,7 +1334,7 @@ mod tests {
     fn clicking_hotbar_selects_building_without_building_under_it() {
         let (mut g, mut e) = playing();
         let before = g.world.buildings().len();
-        let slot = center(g.hotbar_rect(2));
+        let slot = center(g.hotbar_rect(5));
         click(&mut g, &mut e, slot);
         assert_eq!(g.selected_block(), g.reg.block_by_name("smelter"));
         g.update(0.2);
@@ -1147,7 +1357,7 @@ mod tests {
             .iter()
             .map(|c| match c {
                 Command::Place { origin, rot, .. } => (*origin, *rot),
-                Command::Remove { .. } => unreachable!(),
+                _ => unreachable!(),
             })
             .collect();
         assert_eq!(
@@ -1247,6 +1457,64 @@ mod tests {
         frame(&mut g, &mut e);
         assert_eq!(e.wb.len(), base + 1, "one ghost for the smelter");
         assert!(e.hud.batch.len() > 50);
+    }
+
+    #[test]
+    fn clicking_a_building_opens_inspector_and_sorter_filter_can_be_set() {
+        let (mut g, mut e) = playing();
+        // поставить сортировщик (слот 3) в свободном месте и снять инструмент
+        g.handle(Input::Key(Key::Digit(3), true));
+        let t = TilePos::new(70, 40);
+        click_tile(&mut g, t);
+        frame(&mut g, &mut e);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        g.update(1.0 / 30.0 + 1e-6);
+        g.handle(Input::Key(Key::Cancel, true));
+        assert!(g.selected_block().is_none());
+        // клик по нему без инструмента — осмотр
+        click_tile(&mut g, t);
+        frame(&mut g, &mut e);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        assert_eq!(g.inspected, Some(t));
+        frame(&mut g, &mut e);
+        // кнопки фильтра: NONE, затем ресурсы по порядку; выбрать IRON INGOT (ID 2)
+        let u = 1.0;
+        let (x, y, row) = (8.0 * u, 74.0 * u, 18.0 * u);
+        let lines = 2.0; // FILTER, HOLDING
+        let by = y + 36.0 * u + lines * row + 12.0 * u + row;
+        let k = 1.0 + 2.0; // NONE + iron_ore, carbon -> iron_ingot
+        let p = [x + 40.0 * u, by + k * (row + 6.0 * u) + row / 2.0];
+        click(&mut g, &mut e, p);
+        g.update(1.0 / 30.0 + 1e-6);
+        let ingot = g.reg.item_by_name("iron_ingot");
+        match g.world.inspect(&g.reg, t).unwrap().detail {
+            Detail::Sorter { filter, .. } => assert_eq!(filter, ingot),
+            d => panic!("{d:?}"),
+        }
+        assert!(
+            g.selected_block().is_none(),
+            "clicking the inspector must not build"
+        );
+    }
+
+    #[test]
+    fn not_enough_resources_is_explained() {
+        let (mut g, mut e) = playing();
+        // ядро стоит 500 слитков + 100 стали, на старте 150 слитков
+        g.tool = Some(g.hotbar.len() - 1);
+        click_tile(&mut g, TilePos::new(60, 30));
+        frame(&mut g, &mut e);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        g.update(1.0 / 30.0 + 1e-6);
+        let msg = g
+            .message
+            .as_ref()
+            .map(|(m, _)| m.clone())
+            .unwrap_or_default();
+        assert_eq!(msg, "NOT ENOUGH IRON INGOT");
     }
 
     #[test]

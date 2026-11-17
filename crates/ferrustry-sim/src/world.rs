@@ -32,6 +32,28 @@ pub enum Command {
         /// Любой тайл постройки.
         at: TilePos,
     },
+    /// Настроить постройку (сейчас — фильтр сортировщика; `None` — без фильтра).
+    Configure {
+        /// Любой тайл постройки.
+        at: TilePos,
+        /// Ресурс фильтра.
+        item: Option<ItemId>,
+    },
+}
+
+/// Правила партии.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rules {
+    /// Песочница: стройка бесплатна (тесты, бенчмарки, редактор).
+    pub infinite_resources: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Self {
+            infinite_resources: true,
+        }
+    }
 }
 
 /// Причина отклонения команды.
@@ -52,6 +74,37 @@ pub enum CommandError {
     /// На тайле нет постройки.
     #[error("nothing to remove")]
     NothingThere,
+    /// В ядрах не хватает ресурса на постройку.
+    #[error("not enough resources")]
+    NotEnough(ItemId),
+    /// Постройку нельзя так настроить.
+    #[error("building is not configurable")]
+    NotConfigurable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct RouterRow {
+    /// Предмет в буфере (вместимость — 1).
+    pub(crate) item: Option<ItemId>,
+    /// Сторона, с которой он пришёл.
+    pub(crate) from: Dir,
+    /// Фильтр (только сортировщик).
+    pub(crate) filter: Option<ItemId>,
+    /// Курсор очерёдности выходов.
+    pub(crate) cursor: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct BridgeRow {
+    pub(crate) items: Vec<ItemId>,
+    pub(crate) cooldown: u32,
+    pub(crate) partner: Option<BuildingId>,
+    pub(crate) partner_epoch: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct BatteryRow {
+    pub(crate) stored: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +177,10 @@ pub struct World {
     pub(crate) generators: Table<()>,
     pub(crate) nodes: Table<()>,
     pub(crate) cores: Table<CoreRow>,
+    pub(crate) routers: Table<RouterRow>,
+    pub(crate) bridges: Table<BridgeRow>,
+    pub(crate) batteries: Table<BatteryRow>,
+    rules: Rules,
     pub(crate) segments: Vec<Option<Segment>>,
     free_segments: Vec<u32>,
     /// Битсет бодрствующих сегментов (бит на сегмент).
@@ -153,6 +210,14 @@ pub(crate) enum Link {
     Refuses,
     /// Производство или ядро.
     Building(BuildingId),
+    /// Постройка 1×1, которой важна сторона входа (разветвитель, сортировщик, мост);
+    /// `side` — направление от неё к источнику.
+    Directed {
+        /// Получатель.
+        id: BuildingId,
+        /// Сторона входа.
+        side: Dir,
+    },
     /// Сегмент конвейера: тайл `k`, вход сзади или сбоку.
     Segment {
         /// Индекс сегмента.
@@ -201,6 +266,10 @@ impl World {
             generators: Table::default(),
             nodes: Table::default(),
             cores: Table::default(),
+            routers: Table::default(),
+            bridges: Table::default(),
+            batteries: Table::default(),
+            rules: Rules::default(),
             segments: Vec::new(),
             free_segments: Vec::new(),
             seg_awake: Vec::new(),
@@ -212,6 +281,47 @@ impl World {
             rng: Rng::new(seed),
             stats: Stats::new(items),
         }
+    }
+
+    pub(crate) fn topo_epoch(&self) -> u64 {
+        self.topo_epoch
+    }
+
+    /// Правила партии.
+    pub fn rules(&self) -> &Rules {
+        &self.rules
+    }
+
+    /// Задать правила (до начала игры или в редакторе).
+    pub fn set_rules(&mut self, rules: Rules) {
+        self.rules = rules;
+    }
+
+    /// Выдать ресурс в ядра извне (стартовый запас, награды, тесты); учитывается в
+    /// `stats.spawned`. Возвращает, сколько поместилось.
+    pub fn grant(&mut self, reg: &ContentRegistry, item: ItemId, n: u32) -> u32 {
+        let put = self.add_to_cores(reg, item, n);
+        Stats::bump(&mut self.stats.spawned, item, u64::from(put));
+        put
+    }
+
+    /// Положить ресурс в ядра (без учёта в статистике). Возвращает, сколько поместилось.
+    pub(crate) fn add_to_cores(&mut self, reg: &ContentRegistry, item: ItemId, mut n: u32) -> u32 {
+        let start = n;
+        for (row, owner) in self.cores.rows.iter_mut().zip(&self.cores.owners) {
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            let BlockKind::Core { capacity } = reg.block(b.block).kind else {
+                continue;
+            };
+            if let Some(c) = row.items.get_mut(usize::from(item.0)) {
+                let put = n.min(capacity.saturating_sub(*c));
+                *c += put;
+                n -= put;
+            }
+        }
+        start - n
     }
 
     /// Номер текущего тика.
@@ -303,6 +413,16 @@ impl World {
                 add(item, row.buffer);
             }
         }
+        for row in &self.routers.rows {
+            if let Some(item) = row.item {
+                add(item, 1);
+            }
+        }
+        for row in &self.bridges.rows {
+            for &item in &row.items {
+                add(item, 1);
+            }
+        }
         for (row, owner) in self.crafters.rows.iter().zip(&self.crafters.owners) {
             let Some(b) = self.buildings.get(*owner) else {
                 continue;
@@ -347,6 +467,8 @@ impl World {
         self.fire_timers();
         self.update_drills(reg);
         self.update_crafters(reg);
+        self.update_routers(reg);
+        self.update_bridges(reg);
         self.update_conveyors(reg);
         self.tick += 1;
     }
@@ -358,6 +480,72 @@ impl World {
                 self.place(reg, block, origin, rot).map(|_| ())
             }
             Command::Remove { at } => self.remove(reg, at),
+            Command::Configure { at, item } => self.configure(at, item),
+        }
+    }
+
+    fn configure(&mut self, at: TilePos, item: Option<ItemId>) -> Result<(), CommandError> {
+        let id = self.grid.building(at).ok_or(CommandError::NothingThere)?;
+        let b = self.buildings.get(id).ok_or(CommandError::NothingThere)?;
+        if b.tag != KindTag::Sorter || item.is_some_and(|i| u32::from(i.0) >= self.item_count) {
+            return Err(CommandError::NotConfigurable);
+        }
+        let row = self
+            .routers
+            .rows
+            .get_mut(b.row as usize)
+            .ok_or(CommandError::NotConfigurable)?;
+        row.filter = item;
+        Ok(())
+    }
+
+    /// Хватает ли в ядрах ресурсов на постройку.
+    fn check_cost(&self, reg: &ContentRegistry, block: BlockId) -> Result<(), CommandError> {
+        if self.rules.infinite_resources {
+            return Ok(());
+        }
+        let total = self.total_core_items();
+        for st in &reg.block(block).cost {
+            if total.get(usize::from(st.item.0)).copied().unwrap_or(0) < u64::from(st.count) {
+                return Err(CommandError::NotEnough(st.item));
+            }
+        }
+        Ok(())
+    }
+
+    /// Списывает стоимость из ядер (по порядку ядер). Вызывать после `check_cost`.
+    fn pay_cost(&mut self, reg: &ContentRegistry, block: BlockId) {
+        if self.rules.infinite_resources {
+            return;
+        }
+        for st in &reg.block(block).cost {
+            let mut left = st.count;
+            for row in &mut self.cores.rows {
+                if let Some(c) = row.items.get_mut(usize::from(st.item.0)) {
+                    let take = left.min(*c);
+                    *c -= take;
+                    left -= take;
+                }
+                if left == 0 {
+                    break;
+                }
+            }
+            Stats::bump(
+                &mut self.stats.consumed,
+                st.item,
+                u64::from(st.count - left),
+            );
+        }
+    }
+
+    /// Возвращает стоимость в ядра (что не поместилось — теряется).
+    fn refund_cost(&mut self, reg: &ContentRegistry, block: BlockId) {
+        if self.rules.infinite_resources {
+            return;
+        }
+        for st in reg.block(block).cost.clone() {
+            let put = self.add_to_cores(reg, st.item, st.count);
+            Stats::bump(&mut self.stats.produced, st.item, u64::from(put));
         }
     }
 
@@ -373,6 +561,7 @@ impl World {
         rot: Dir,
     ) -> Result<BuildingId, CommandError> {
         self.can_place(reg, block, origin)?;
+        self.pay_cost(reg, block);
         let def = reg.block(block);
         let size = i32::from(def.size);
 
@@ -383,6 +572,10 @@ impl World {
             BlockKind::Generator { .. } => KindTag::Generator,
             BlockKind::PowerNode { .. } => KindTag::PowerNode,
             BlockKind::Core { .. } => KindTag::Core,
+            BlockKind::Splitter => KindTag::Splitter,
+            BlockKind::Sorter => KindTag::Sorter,
+            BlockKind::Bridge { .. } => KindTag::Bridge,
+            BlockKind::Battery { .. } => KindTag::Battery,
         };
         self.topo_epoch += 1;
         let id = self.buildings.insert(Building {
@@ -442,6 +635,25 @@ impl World {
                     items: vec![0; self.item_count as usize],
                 },
             ),
+            BlockKind::Splitter | BlockKind::Sorter => self.routers.push(
+                id,
+                RouterRow {
+                    item: None,
+                    from: Dir::Left,
+                    filter: None,
+                    cursor: 0,
+                },
+            ),
+            BlockKind::Bridge { buffer, .. } => self.bridges.push(
+                id,
+                BridgeRow {
+                    items: Vec::with_capacity(*buffer as usize),
+                    cooldown: 0,
+                    partner: None,
+                    partner_epoch: 0,
+                },
+            ),
+            BlockKind::Battery { .. } => self.batteries.push(id, BatteryRow { stored: 0 }),
         };
         if let Some(b) = self.buildings.get_mut(id) {
             b.row = row;
@@ -488,7 +700,7 @@ impl World {
                 }
             }
         }
-        Ok(())
+        self.check_cost(reg, block)
     }
 
     /// Самая распространённая руда под постройкой (при равенстве — меньший ID ресурса).
@@ -520,6 +732,8 @@ impl World {
             .buildings
             .remove(id)
             .ok_or(CommandError::NothingThere)?;
+        // снос меняет топологию: кэши связей (сегменты, выгрузка, мосты) недействительны
+        self.topo_epoch += 1;
         let s = i32::from(b.size);
         for dy in 0..s {
             for dx in 0..s {
@@ -558,6 +772,21 @@ impl World {
                 }
                 m
             }),
+            KindTag::Splitter | KindTag::Sorter => {
+                self.routers.swap_remove(b.row).map(|(row, m)| {
+                    if let Some(item) = row.item {
+                        Stats::bump(&mut self.stats.destroyed, item, 1);
+                    }
+                    m
+                })
+            }
+            KindTag::Bridge => self.bridges.swap_remove(b.row).map(|(row, m)| {
+                for item in row.items {
+                    Stats::bump(&mut self.stats.destroyed, item, 1);
+                }
+                m
+            }),
+            KindTag::Battery => self.batteries.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Generator => self.generators.swap_remove(b.row).map(|(_, m)| m),
             KindTag::PowerNode => self.nodes.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Core => self.cores.swap_remove(b.row).map(|(row, m)| {
@@ -572,6 +801,8 @@ impl World {
         {
             mb.row = b.row;
         }
+        // возврат стоимости — после удаления из таблиц (сносимое ядро уже не получатель)
+        self.refund_cost(reg, b.block);
         self.wake_adjacent_drills(&b);
         if let Some(seg) = old_segment {
             self.rebuild_conveyors_around(reg, at, &[seg]);
@@ -816,7 +1047,18 @@ impl World {
                 }
             }
             KindTag::Crafter | KindTag::Core => Link::Building(id),
-            KindTag::Drill | KindTag::Generator | KindTag::PowerNode => Link::Refuses,
+            KindTag::Splitter | KindTag::Sorter | KindTag::Bridge => {
+                let Some(side) = dir_between(target, from) else {
+                    return Link::Refuses;
+                };
+                if b.tag == KindTag::Bridge && side == b.rot {
+                    return Link::Refuses; // мост не принимает со стороны выхода
+                }
+                Link::Directed { id, side }
+            }
+            KindTag::Drill | KindTag::Generator | KindTag::PowerNode | KindTag::Battery => {
+                Link::Refuses
+            }
         }
     }
 
@@ -825,6 +1067,7 @@ impl World {
         match link {
             Link::Nothing | Link::Refuses => false,
             Link::Building(id) => self.offer_building(reg, id, item),
+            Link::Directed { id, side } => self.offer_directed(reg, id, side, item),
             Link::Segment { seg, k, behind } => {
                 let Some(sg) = self.segments.get_mut(seg as usize).and_then(Option::as_mut) else {
                     return false;
@@ -840,6 +1083,19 @@ impl World {
                 ok
             }
         }
+    }
+
+    /// Передача предмета с тайла `from` на соседний `target` без кэша связей
+    /// (разветвители, сортировщики, мосты — их выходы зависят от предмета).
+    pub(crate) fn offer(
+        &mut self,
+        reg: &ContentRegistry,
+        target: TilePos,
+        from: TilePos,
+        item: ItemId,
+    ) -> bool {
+        let link = self.resolve_link(target, from);
+        self.deliver(reg, link, item)
     }
 
     /// Передача предмета постройке, не являющейся конвейером.
@@ -881,7 +1137,7 @@ impl World {
                     _ => false,
                 }
             }
-            KindTag::Conveyor | KindTag::Drill | KindTag::Generator | KindTag::PowerNode => false,
+            _ => false,
         }
     }
 
@@ -1005,7 +1261,7 @@ impl World {
         let has_building = (0..n).any(|j| {
             matches!(
                 self.buildings.get(owner).map(|b| b.dump_links[j]),
-                Some(Link::Building(_))
+                Some(Link::Building(_) | Link::Directed { .. })
             )
         });
         if has_building {
@@ -1409,6 +1665,14 @@ impl World {
                 ),
                 KindTag::PowerNode => (self.nodes.len(), self.nodes.owners.get(b.row as usize)),
                 KindTag::Core => (self.cores.len(), self.cores.owners.get(b.row as usize)),
+                KindTag::Splitter | KindTag::Sorter => {
+                    (self.routers.len(), self.routers.owners.get(b.row as usize))
+                }
+                KindTag::Bridge => (self.bridges.len(), self.bridges.owners.get(b.row as usize)),
+                KindTag::Battery => (
+                    self.batteries.len(),
+                    self.batteries.owners.get(b.row as usize),
+                ),
             };
             if (b.row as usize) >= len || owner != Some(&id) {
                 return Err("building table row mismatch".into());
@@ -1480,7 +1744,12 @@ impl World {
     }
 }
 
-fn rot_left(d: Dir) -> Dir {
+/// Направление от соседнего тайла `a` к тайлу `b` (если они соседи по стороне).
+pub(crate) fn dir_between(a: TilePos, b: TilePos) -> Option<Dir> {
+    Dir::ALL.into_iter().find(|&d| a.step(d) == b)
+}
+
+pub(crate) fn rot_left(d: Dir) -> Dir {
     match d {
         Dir::Right => Dir::Up,
         Dir::Up => Dir::Left,
@@ -1489,6 +1758,182 @@ fn rot_left(d: Dir) -> Dir {
     }
 }
 
-fn rot_right(d: Dir) -> Dir {
+pub(crate) fn rot_right(d: Dir) -> Dir {
     rot_left(d).opposite()
+}
+
+/// Состояние постройки для инспектора интерфейса.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Detail {
+    /// Конвейер: предметов на его сегменте.
+    Conveyor {
+        /// Предметов на сегменте.
+        items_on_segment: usize,
+    },
+    /// Бур.
+    Drill {
+        /// Добываемый ресурс (нет руды — `None`).
+        ore: Option<ItemId>,
+        /// Тайлов руды под буром.
+        ore_tiles: u32,
+        /// Предметов в буфере.
+        buffer: u32,
+    },
+    /// Производство.
+    Crafter {
+        /// Входной буфер.
+        inputs: Vec<(ItemId, u32)>,
+        /// Выходной буфер.
+        outputs: Vec<(ItemId, u32)>,
+        /// Прогресс текущего цикла, тысячные.
+        progress: u32,
+        /// Хватает ли входов и места для выходов.
+        ready: bool,
+    },
+    /// Ядро: содержимое по ID ресурса.
+    Core {
+        /// Количество каждого ресурса.
+        items: Vec<u32>,
+    },
+    /// Генератор.
+    Generator {
+        /// Выработка за тик.
+        power: u32,
+    },
+    /// Узел энергосети.
+    PowerNode,
+    /// Батарея.
+    Battery {
+        /// Запас.
+        stored: u64,
+        /// Ёмкость.
+        capacity: u32,
+    },
+    /// Разветвитель.
+    Splitter {
+        /// Предмет в буфере.
+        item: Option<ItemId>,
+    },
+    /// Сортировщик.
+    Sorter {
+        /// Предмет в буфере.
+        item: Option<ItemId>,
+        /// Фильтр.
+        filter: Option<ItemId>,
+    },
+    /// Мост.
+    Bridge {
+        /// Предметы в буфере.
+        items: Vec<ItemId>,
+        /// Найден ли партнёр (иначе это выход моста).
+        linked: bool,
+    },
+}
+
+/// Результат осмотра постройки.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inspection {
+    /// Тип постройки.
+    pub block: BlockId,
+    /// Левый нижний тайл.
+    pub origin: TilePos,
+    /// Поворот.
+    pub rot: Dir,
+    /// Энергосеть постройки.
+    pub power: Option<crate::power::PowerNet>,
+    /// Состояние по виду поведения.
+    pub detail: Detail,
+}
+
+impl World {
+    /// Осмотр постройки, занимающей тайл.
+    pub fn inspect(&self, reg: &ContentRegistry, at: TilePos) -> Option<Inspection> {
+        let id = self.grid.building(at)?;
+        let b = self.buildings.get(id)?;
+        let row = b.row as usize;
+        let def = reg.block(b.block);
+        let detail = match (&def.kind, b.tag) {
+            (_, KindTag::Conveyor) => {
+                let s = self.conveyors.rows.get(row)?.segment;
+                Detail::Conveyor {
+                    items_on_segment: self
+                        .segments
+                        .get(s as usize)?
+                        .as_ref()
+                        .map_or(0, Segment::item_count),
+                }
+            }
+            (_, KindTag::Drill) => {
+                let r = self.drills.rows.get(row)?;
+                Detail::Drill {
+                    ore: r.item,
+                    ore_tiles: r.ore_tiles,
+                    buffer: r.buffer,
+                }
+            }
+            (
+                BlockKind::Crafter {
+                    inputs,
+                    outputs,
+                    craft_ticks,
+                    ..
+                },
+                KindTag::Crafter,
+            ) => {
+                let r = self.crafters.rows.get(row)?;
+                let need = u64::from(*craft_ticks) * 1000;
+                Detail::Crafter {
+                    inputs: inputs
+                        .iter()
+                        .zip(&r.inputs)
+                        .map(|(s, &n)| (s.item, n))
+                        .collect(),
+                    outputs: outputs
+                        .iter()
+                        .zip(&r.outputs)
+                        .map(|(s, &n)| (s.item, n))
+                        .collect(),
+                    progress: u32::try_from(r.progress * 1000 / need.max(1)).unwrap_or(1000),
+                    ready: Self::crafter_ready(reg, b.block, r),
+                }
+            }
+            (_, KindTag::Core) => Detail::Core {
+                items: self.cores.rows.get(row)?.items.clone(),
+            },
+            (BlockKind::Generator { power }, _) => Detail::Generator { power: *power },
+            (_, KindTag::PowerNode) => Detail::PowerNode,
+            (BlockKind::Battery { capacity }, _) => Detail::Battery {
+                stored: self.batteries.rows.get(row)?.stored,
+                capacity: *capacity,
+            },
+            (_, KindTag::Splitter) => Detail::Splitter {
+                item: self.routers.rows.get(row)?.item,
+            },
+            (_, KindTag::Sorter) => {
+                let r = self.routers.rows.get(row)?;
+                Detail::Sorter {
+                    item: r.item,
+                    filter: r.filter,
+                }
+            }
+            (_, KindTag::Bridge) => {
+                let r = self.bridges.rows.get(row)?;
+                Detail::Bridge {
+                    items: r.items.clone(),
+                    linked: r.partner.is_some() && r.partner_epoch == self.topo_epoch,
+                }
+            }
+            _ => return None,
+        };
+        Some(Inspection {
+            block: b.block,
+            origin: b.origin,
+            rot: b.rot,
+            power: b
+                .power_net
+                .and_then(|n| self.power.nets.get(n as usize))
+                .cloned(),
+            detail,
+        })
+    }
 }

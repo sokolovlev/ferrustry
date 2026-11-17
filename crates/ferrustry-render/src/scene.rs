@@ -13,7 +13,8 @@ use crate::camera::Camera;
 pub struct SpriteTable {
     floors: Vec<[f32; 4]>,
     ores: Vec<[f32; 4]>,
-    items: Vec<[f32; 4]>,
+    /// UV ресурсов по ID.
+    pub items: Vec<[f32; 4]>,
     blocks: Vec<[f32; 4]>,
     /// Белый пиксель (для прямоугольников).
     pub white: SpriteId,
@@ -132,12 +133,30 @@ pub fn build_world(
         if !visible(c[0], c[1], s) {
             continue;
         }
-        let rot = if b.tag == ferrustry_sim::KindTag::Conveyor {
+        let directional = matches!(
+            b.tag,
+            ferrustry_sim::KindTag::Conveyor | ferrustry_sim::KindTag::Bridge
+        );
+        let rot = if directional {
             quarter_turns(b.rot)
         } else {
             0.0
         };
         batch.push(table.block(b.block), c, [s, s], rot, WHITE);
+        if b.tag == ferrustry_sim::KindTag::Sorter
+            && let Some(ins) = world.inspect(reg, b.origin)
+            && let ferrustry_sim::Detail::Sorter {
+                filter: Some(item), ..
+            } = ins.detail
+        {
+            batch.push(
+                table.items[usize::from(item.0)],
+                c,
+                [0.45, 0.45],
+                0.0,
+                WHITE,
+            );
+        }
     }
 
     // предметы на лентах
@@ -190,6 +209,7 @@ pub fn build_world(
         let rot = if matches!(
             reg.block(g.block).kind,
             ferrustry_content::BlockKind::Conveyor { .. }
+                | ferrustry_content::BlockKind::Bridge { .. }
         ) {
             quarter_turns(g.rot)
         } else {

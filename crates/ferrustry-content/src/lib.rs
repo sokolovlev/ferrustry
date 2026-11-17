@@ -110,10 +110,12 @@ struct RawOre {
 struct RawBlock {
     name: String,
     size: u8,
+    #[serde(default)]
+    cost: Vec<(String, u32)>,
     kind: RawKind,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 enum RawKind {
     Conveyor {
         speed: u32,
@@ -136,6 +138,16 @@ enum RawKind {
         range: u32,
     },
     Core {
+        capacity: u32,
+    },
+    Splitter,
+    Sorter,
+    Bridge {
+        range: u32,
+        interval: u32,
+        buffer: u32,
+    },
+    Battery {
         capacity: u32,
     },
 }
@@ -221,6 +233,24 @@ pub enum BlockKind {
         /// Ёмкость по каждому ресурсу.
         capacity: u32,
     },
+    /// Разветвитель 1×1: принимает предмет с любой стороны и раздаёт по кругу на остальные три.
+    Splitter,
+    /// Сортировщик 1×1: предметы фильтра идут прямо, остальные — вбок (поочерёдно влево/вправо).
+    Sorter,
+    /// Мост: переносит предметы над тайлами к следующему мосту того же направления.
+    Bridge {
+        /// Дальность поиска партнёра в тайлах.
+        range: u32,
+        /// Тиков на передачу одного предмета.
+        interval: u32,
+        /// Ёмкость буфера.
+        buffer: u32,
+    },
+    /// Батарея: накапливает избыток энергии сети и отдаёт при нехватке.
+    Battery {
+        /// Ёмкость в единицах энергии.
+        capacity: u32,
+    },
 }
 
 /// Тип постройки.
@@ -230,6 +260,8 @@ pub struct BlockDef {
     pub name: String,
     /// Размер стороны в тайлах.
     pub size: u8,
+    /// Стоимость постройки (списывается из ядер, возвращается при сносе).
+    pub cost: Vec<ItemStack>,
     /// Поведение.
     pub kind: BlockKind,
 }
@@ -238,7 +270,9 @@ impl BlockDef {
     /// Участвует ли постройка в энергосети.
     pub fn is_power(&self) -> bool {
         match &self.kind {
-            BlockKind::Generator { .. } | BlockKind::PowerNode { .. } => true,
+            BlockKind::Generator { .. }
+            | BlockKind::PowerNode { .. }
+            | BlockKind::Battery { .. } => true,
             BlockKind::Crafter { power_use, .. } => *power_use > 0,
             _ => false,
         }
@@ -349,7 +383,7 @@ impl ContentRegistry {
                     reason: "must be in 1..=8".into(),
                 });
             }
-            let kind = match block.kind {
+            let kind = match block.kind.clone() {
                 RawKind::Conveyor { speed } => {
                     positive(speed, || p("speed"))?;
                     if block.size != 1 {
@@ -420,10 +454,57 @@ impl ContentRegistry {
                     positive(capacity, || p("capacity"))?;
                     BlockKind::Core { capacity }
                 }
+                RawKind::Splitter | RawKind::Sorter => {
+                    if block.size != 1 {
+                        return Err(ContentError::Invalid {
+                            path: p("size"),
+                            reason: "splitters and sorters must have size 1".into(),
+                        });
+                    }
+                    if matches!(&block.kind, RawKind::Splitter) {
+                        BlockKind::Splitter
+                    } else {
+                        BlockKind::Sorter
+                    }
+                }
+                RawKind::Bridge {
+                    range,
+                    interval,
+                    buffer,
+                } => {
+                    positive(range, || p("range"))?;
+                    positive(interval, || p("interval"))?;
+                    positive(buffer, || p("buffer"))?;
+                    if block.size != 1 {
+                        return Err(ContentError::Invalid {
+                            path: p("size"),
+                            reason: "bridges must have size 1".into(),
+                        });
+                    }
+                    BlockKind::Bridge {
+                        range,
+                        interval,
+                        buffer,
+                    }
+                }
+                RawKind::Battery { capacity } => {
+                    positive(capacity, || p("capacity"))?;
+                    BlockKind::Battery { capacity }
+                }
             };
+            let mut cost = Vec::with_capacity(block.cost.len());
+            for (j, (name, count)) in block.cost.iter().enumerate() {
+                let path = || format!("{}[{j}]", p("cost"));
+                positive(*count, path)?;
+                cost.push(ItemStack {
+                    item: resolve(&item_names, name, "item", path)?,
+                    count: *count,
+                });
+            }
             blocks.push(BlockDef {
                 name: block.name,
                 size: block.size,
+                cost,
                 kind,
             });
         }

@@ -331,6 +331,56 @@ fn draw_block(name: &str, size: u8) -> Canvas {
                 c.fill(x, y, 4, 4, FORGE_ORANGE);
             }
         }
+        "splitter" => {
+            c.frame(2, 3);
+            let (cx, cy) = (16.0, 16.0);
+            for (dx, dy) in [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)] {
+                let tip = (cx + dx * 11.0, cy + dy * 11.0);
+                c.thick_line((cx + dx * 4.0, cy + dy * 4.0), tip, 1.3, TITANIUM);
+                c.thick_line(
+                    tip,
+                    (tip.0 - dx * 4.0 + dy * 3.0, tip.1 - dy * 4.0 + dx * 3.0),
+                    1.1,
+                    TITANIUM,
+                );
+                c.thick_line(
+                    tip,
+                    (tip.0 - dx * 4.0 - dy * 3.0, tip.1 - dy * 4.0 - dx * 3.0),
+                    1.1,
+                    TITANIUM,
+                );
+            }
+            c.disc(cx, cy, 3.5, MOLTEN_GOLD);
+        }
+        "sorter" => {
+            c.frame(2, 3);
+            c.fill(9, 9, 14, 14, SHADOW);
+            c.ring(16.0, 16.0, 7.0, 8.5, FORGE_ORANGE);
+            c.thick_line((3.0, 16.0), (8.0, 16.0), 1.2, TITANIUM);
+            c.thick_line((24.0, 16.0), (29.0, 16.0), 1.2, TITANIUM);
+        }
+        "bridge_conveyor" => {
+            c.fill(4, 4, 24, 24, SHADOW);
+            c.fill(6, 6, 20, 20, GUNMETAL);
+            c.fill(6, 6, 20, 3, shade(TITANIUM, -20));
+            c.fill(6, 23, 20, 3, shade(TITANIUM, -20));
+            c.thick_line((10.0, 12.0), (18.0, 16.0), 1.5, MOLTEN_GOLD);
+            c.thick_line((10.0, 20.0), (18.0, 16.0), 1.5, MOLTEN_GOLD);
+            c.fill(19, 13, 4, 7, FORGE_ORANGE);
+        }
+        "battery" => {
+            c.frame(2, 3);
+            c.fill(9, 6, 14, 22, SHADOW);
+            c.fill(13, 3, 6, 4, TITANIUM);
+            for i in 0..4 {
+                let col = if i < 3 {
+                    MOLTEN_GOLD
+                } else {
+                    shade(MOLTEN_GOLD, -90)
+                };
+                c.fill(11, 23 - i * 5, 10, 3, col);
+            }
+        }
         _ => {
             c.frame(2, 4);
             c.thick_line(

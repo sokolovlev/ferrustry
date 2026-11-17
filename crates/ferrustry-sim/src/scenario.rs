@@ -313,7 +313,7 @@ impl RandomBuilder {
                 }
             }
         }
-        let blocks = vec![
+        let mut blocks = vec![
             ids.conveyor,
             ids.conveyor,
             ids.conveyor,
@@ -322,6 +322,17 @@ impl RandomBuilder {
             ids.smelter,
             ids.wind_turbine,
         ];
+        for extra in [
+            "splitter",
+            "sorter",
+            "bridge_conveyor",
+            "battery",
+            "power_node",
+        ] {
+            if let Some(b) = reg.block_by_name(extra) {
+                blocks.push(b);
+            }
+        }
         Ok((
             w,
             Self {
@@ -461,5 +472,13 @@ pub fn demo_map(reg: &ContentRegistry, seed: u64) -> Result<World, ScenarioError
     let (kx, ky) = at(18, 2);
     cmds.push(place(ids.core, kx, ky, Dir::Right));
     build(&mut world, reg, &cmds)?;
+    // экономика: стартовая база бесплатна, дальше стройка стоит ресурсов из ядра
+    world.set_rules(crate::world::Rules {
+        infinite_resources: false,
+    });
+    world.grant(reg, ids.iron_ingot, STARTER_INGOTS);
     Ok(world)
 }
+
+/// Стартовый запас слитков на демо-карте.
+pub const STARTER_INGOTS: u32 = 150;

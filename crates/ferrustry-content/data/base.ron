@@ -19,18 +19,21 @@
     blocks: [
         (
             name: "conveyor",
+            cost: [("iron_ingot", 1)],
             size: 1,
             // единиц пути за тик; тайл = 256 единиц, шаг между предметами = 64
             kind: Conveyor(speed: 16),
         ),
         (
             name: "bore",
+            cost: [("iron_ingot", 10)],
             size: 2,
             // при полном покрытии рудой (4 тайла): 1 предмет за 40 тиков
             kind: Drill(base_ticks: 40, buffer: 10),
         ),
         (
             name: "smelter",
+            cost: [("iron_ingot", 25)],
             size: 2,
             kind: Crafter(
                 inputs: [("iron_ore", 2)],
@@ -42,6 +45,7 @@
         ),
         (
             name: "steel_forge",
+            cost: [("iron_ingot", 40)],
             size: 2,
             kind: Crafter(
                 inputs: [("iron_ingot", 2), ("carbon", 1)],
@@ -53,16 +57,45 @@
         ),
         (
             name: "wind_turbine",
+            cost: [("iron_ingot", 10)],
             size: 1,
             kind: Generator(power: 2),
         ),
         (
             name: "power_node",
+            cost: [("iron_ingot", 4)],
             size: 1,
             kind: PowerNode(range: 6),
         ),
         (
+            name: "splitter",
+            cost: [("iron_ingot", 3)],
+            size: 1,
+            kind: Splitter,
+        ),
+        (
+            name: "sorter",
+            cost: [("iron_ingot", 4)],
+            size: 1,
+            kind: Sorter,
+        ),
+        (
+            name: "bridge_conveyor",
+            cost: [("iron_ingot", 6)],
+            size: 1,
+            // мост «прыгает» до 4 тайлов к следующему мосту того же направления;
+            // 1 предмет за 4 тика — как пропускная способность ленты
+            kind: Bridge(range: 4, interval: 4, buffer: 4),
+        ),
+        (
+            name: "battery",
+            cost: [("iron_ingot", 15), ("carbon", 2)],
+            size: 1,
+            kind: Battery(capacity: 2000),
+        ),
+        (
             name: "core",
+            cost: [("iron_ingot", 500), ("steel", 100)],
             size: 3,
             kind: Core(capacity: 4000),
         ),

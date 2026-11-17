@@ -9,6 +9,7 @@ pub mod buildings;
 pub mod geom;
 pub mod grid;
 mod hash;
+mod logistics;
 pub mod power;
 pub mod rng;
 pub mod scenario;
@@ -21,4 +22,7 @@ pub use geom::{Dir, TilePos};
 /// Версия симуляции: replay воспроизводим только той же версией.
 pub const SIM_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use hash::state_hash;
-pub use world::{Command, CommandError, MAX_SEGMENT_TILES, Stats, TICKS_PER_SECOND, World};
+pub use world::{
+    Command, CommandError, Detail, Inspection, MAX_SEGMENT_TILES, Rules, Stats, TICKS_PER_SECOND,
+    World,
+};
