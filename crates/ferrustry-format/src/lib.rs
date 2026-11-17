@@ -14,6 +14,9 @@
 use std::io::Read;
 
 mod replay;
+mod schematic;
+
+pub use schematic::{read_schematic, write_schematic};
 
 pub use replay::{
     Checkpoint, PlayOutcome, Recorder, Replay, TickInput, play, read_replay, write_replay,

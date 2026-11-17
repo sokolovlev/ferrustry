@@ -192,6 +192,29 @@ impl App {
                 self.game.loaded(res.ok());
             }
             Request::Quit => el.exit(),
+            Request::SaveSchematic(sch) => {
+                let res = ferrustry_format::write_schematic(&sch, &self.game.reg)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| {
+                        std::fs::write(Game::schematic_path(), b).map_err(|e| e.to_string())
+                    });
+                if let Err(e) = &res {
+                    eprintln!("ferrustry: schematic save failed: {e}");
+                }
+                self.game.schematic_saved(res.is_ok());
+            }
+            Request::LoadSchematic => {
+                let res = std::fs::read(Game::schematic_path())
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| {
+                        ferrustry_format::read_schematic(&b, &self.game.reg)
+                            .map_err(|e| e.to_string())
+                    });
+                if let Err(e) = &res {
+                    eprintln!("ferrustry: schematic load failed: {e}");
+                }
+                self.game.schematic_loaded(res.ok());
+            }
         }
     }
 }
@@ -215,6 +238,9 @@ fn map_key(code: KeyCode) -> Option<Key> {
         KeyCode::F9 => Key::Load,
         KeyCode::F1 => Key::Help,
         KeyCode::Tab => Key::NextCategory,
+        KeyCode::KeyC => Key::Copy,
+        KeyCode::F6 => Key::SaveSchematic,
+        KeyCode::F7 => Key::LoadSchematic,
         KeyCode::Equal | KeyCode::NumpadAdd => Key::Faster,
         KeyCode::Minus | KeyCode::NumpadSubtract => Key::Slower,
         KeyCode::KeyW | KeyCode::ArrowUp => Key::PanUp,

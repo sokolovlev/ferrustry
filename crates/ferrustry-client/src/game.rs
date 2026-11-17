@@ -7,9 +7,9 @@ use ferrustry_content::{BlockId, BlockKind, ContentRegistry};
 use ferrustry_render::atlas::palette;
 use ferrustry_render::{Atlas, Camera, Ghost, Hud, SpriteBatch, SpriteTable, build_world, rgba};
 use ferrustry_sim::combat::Outcome;
-use ferrustry_sim::{
-    Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePos, World, scenario,
-};
+use ferrustry_sim::mapgen::{self, Difficulty, MapSettings, MapSize};
+use ferrustry_sim::schematic::Schematic;
+use ferrustry_sim::{Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePos, World};
 
 use crate::ui::{Rect, Ui, text_width};
 
@@ -45,6 +45,12 @@ pub enum Key {
     Slower,
     /// Справка.
     Help,
+    /// Режим копирования схемы.
+    Copy,
+    /// Сохранить текущую схему.
+    SaveSchematic,
+    /// Загрузить схему.
+    LoadSchematic,
     /// Следующая категория построек.
     NextCategory,
     /// Панорама вверх.
@@ -80,6 +86,7 @@ pub enum Input {
 enum Drag {
     Build(TilePos),
     Remove(TilePos),
+    Copy(TilePos),
     Pan([f32; 2]),
 }
 
@@ -92,6 +99,8 @@ pub enum Screen {
     Playing,
     /// Меню паузы (симуляция стоит).
     PauseMenu,
+    /// Настройки новой игры.
+    NewGame,
 }
 
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
@@ -103,9 +112,14 @@ pub enum Request {
     Load,
     /// Закрыть игру.
     Quit,
+    /// Сохранить схему в файл.
+    SaveSchematic(Schematic),
+    /// Загрузить схему из файла.
+    LoadSchematic,
 }
 
 const QUICKSAVE: &str = "ferrustry-quicksave.fsave";
+const SCHEMATIC_FILE: &str = "ferrustry-schematic.fschem";
 
 /// Категории панели построек (вкладки).
 const CATEGORIES: [(&str, &[&str]); 5] = [
@@ -166,6 +180,10 @@ pub struct Game {
     quicksave_exists: bool,
     inspected: Option<TilePos>,
     last_wave: u32,
+    copy_mode: bool,
+    paste: Option<Schematic>,
+    map_size: MapSize,
+    difficulty: Difficulty,
 }
 
 /// Скользящий счётчик частоты.
@@ -238,6 +256,10 @@ impl Game {
             show_help: false,
             inspected: None,
             last_wave: 0,
+            copy_mode: false,
+            paste: None,
+            map_size: MapSize::Medium,
+            difficulty: Difficulty::Normal,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -268,6 +290,39 @@ impl Game {
         QUICKSAVE
     }
 
+    /// Путь файла схемы.
+    pub fn schematic_path() -> &'static str {
+        SCHEMATIC_FILE
+    }
+
+    /// Результат загрузки схемы: включает режим вставки.
+    pub fn schematic_loaded(&mut self, s: Option<Schematic>) {
+        match s {
+            Some(s) => {
+                self.notify(format!("SCHEMATIC LOADED: {} BUILDINGS", s.entries.len()));
+                self.tool = None;
+                self.copy_mode = false;
+                self.paste = Some(s);
+            }
+            None => self.notify("NO SCHEMATIC TO LOAD"),
+        }
+    }
+
+    /// Результат сохранения схемы.
+    pub fn schematic_saved(&mut self, ok: bool) {
+        self.notify(if ok {
+            "SCHEMATIC SAVED"
+        } else {
+            "SCHEMATIC SAVE FAILED"
+        });
+    }
+
+    /// Левый нижний угол вставки: схема центрируется под курсором.
+    fn paste_origin(&self, s: &Schematic) -> TilePos {
+        let t = self.cursor_tile();
+        TilePos::new(t.x - s.width / 2, t.y - s.height / 2)
+    }
+
     /// Результат сохранения (вызывает окружение).
     pub fn saved(&mut self, ok: bool) {
         self.quicksave_exists |= ok;
@@ -293,7 +348,12 @@ impl Game {
     }
 
     fn new_game(&mut self) {
-        match scenario::demo_map(&self.reg, self.seed) {
+        let settings = MapSettings {
+            size: self.map_size,
+            difficulty: self.difficulty,
+            seed: self.seed,
+        };
+        match mapgen::generate(&self.reg, &settings) {
             Ok(w) => {
                 self.world = w;
                 self.camera.center = [
@@ -306,6 +366,9 @@ impl Game {
                 self.pending.clear();
                 self.paused = false;
                 self.last_wave = 0;
+                self.paste = None;
+                self.copy_mode = false;
+                self.inspected = None;
                 self.screen = Screen::Playing;
                 self.message = Some((
                     "CHOOSE A BUILDING BELOW (1-5, TAB: CATEGORY), THEN CLICK THE MAP".into(),
@@ -353,6 +416,20 @@ impl Game {
             Input::MouseUp(Button::Left) if self.ui.pressed_at.is_some() => self.ui.released = true,
             Input::Wheel(d) => self.camera.zoom_at(1.15f32.powf(d), self.cursor),
             Input::MouseDown(Button::Middle) => self.drag = Some(Drag::Pan(self.cursor)),
+            Input::MouseDown(Button::Left) if self.paste.is_some() => {
+                if let Some(s) = &self.paste {
+                    let cmds = s.commands(self.paste_origin(s));
+                    self.queue(cmds);
+                }
+            }
+            Input::MouseDown(Button::Left) if self.copy_mode => {
+                self.drag = Some(Drag::Copy(self.cursor_tile()));
+            }
+            Input::MouseDown(Button::Right) if self.paste.is_some() || self.copy_mode => {
+                self.paste = None;
+                self.copy_mode = false;
+                self.drag = None;
+            }
             Input::MouseDown(Button::Left) => {
                 if self.selected_block().is_some() {
                     self.drag = Some(Drag::Build(self.cursor_tile()));
@@ -387,6 +464,20 @@ impl Game {
                         self.queue(cmds);
                     }
                     (Some(Drag::Pan(_)), Button::Middle) => self.drag = None,
+                    (Some(Drag::Copy(start)), Button::Left) => {
+                        self.drag = None;
+                        match self.world.copy_schematic(&self.reg, start, end) {
+                            Some(sch) => {
+                                self.notify(format!(
+                                    "COPIED {}: CLICK TO PLACE, R ROTATE, F6 SAVE",
+                                    sch.entries.len()
+                                ));
+                                self.copy_mode = false;
+                                self.paste = Some(sch);
+                            }
+                            None => self.notify("NOTHING TO COPY HERE"),
+                        }
+                    }
                     _ => {} // отпущена другая кнопка — жест продолжается
                 }
             }
@@ -422,10 +513,17 @@ impl Game {
             (Screen::Playing, Key::Cancel) => {
                 if self.show_help {
                     self.show_help = false;
-                } else if self.tool.is_some() || self.drag.is_some() || self.inspected.is_some() {
+                } else if self.tool.is_some()
+                    || self.drag.is_some()
+                    || self.inspected.is_some()
+                    || self.paste.is_some()
+                    || self.copy_mode
+                {
                     self.tool = None;
                     self.drag = None;
                     self.inspected = None;
+                    self.paste = None;
+                    self.copy_mode = false;
                 } else {
                     self.screen = Screen::PauseMenu;
                 }
@@ -434,6 +532,23 @@ impl Game {
                 let i = usize::from(d.saturating_sub(1));
                 self.select(i);
             }
+            (Screen::Playing, Key::Rotate) if self.paste.is_some() => {
+                self.paste = self.paste.as_ref().map(|s| s.rotated_cw(&self.reg));
+            }
+            (Screen::Playing, Key::Copy) => {
+                self.copy_mode = !self.copy_mode;
+                self.paste = None;
+                self.tool = None;
+                if self.copy_mode {
+                    self.notify("DRAG A FRAME AROUND BUILDINGS TO COPY");
+                }
+            }
+            (Screen::Playing, Key::SaveSchematic) => match &self.paste {
+                Some(s) => self.requests.push(Request::SaveSchematic(s.clone())),
+                None => self.notify("COPY SOMETHING FIRST (C)"),
+            },
+            (Screen::Playing, Key::LoadSchematic) => self.requests.push(Request::LoadSchematic),
+            (Screen::NewGame, Key::Cancel) => self.screen = Screen::MainMenu,
             (Screen::Playing, Key::Rotate) => {
                 self.rot = match self.rot {
                     Dir::Right => Dir::Down,
@@ -458,6 +573,8 @@ impl Game {
 
     fn select(&mut self, i: usize) {
         let Some(&b) = self.hotbar.get(i) else { return };
+        self.paste = None;
+        self.copy_mode = false;
         self.tool = if self.tool == Some(b) { None } else { Some(b) };
     }
 
@@ -613,7 +730,7 @@ impl Game {
         }
         let mut ticks = 0;
         let running = match self.screen {
-            Screen::MainMenu => true,
+            Screen::MainMenu | Screen::NewGame => true,
             Screen::Playing => !self.paused && self.world.outcome() == Outcome::Running,
             Screen::PauseMenu => false,
         };
@@ -680,6 +797,22 @@ impl Game {
                 }
             }
         }
+        if self.screen == Screen::Playing
+            && !over_ui
+            && let Some(s) = &self.paste
+        {
+            for c in s.commands(self.paste_origin(s)) {
+                if let Command::Place { block, origin, rot } = c {
+                    let valid = self.world.can_place(&self.reg, block, origin).is_ok();
+                    self.ghosts.push(Ghost {
+                        block,
+                        origin,
+                        rot,
+                        valid,
+                    });
+                }
+            }
+        }
         build_world(
             world_batch,
             table,
@@ -689,6 +822,18 @@ impl Game {
             &self.ghosts,
             &mut self.dirs,
         );
+        if let Some(Drag::Copy(start)) = self.drag {
+            let end = self.cursor_tile();
+            let (x0, x1) = (start.x.min(end.x), start.x.max(end.x) + 1);
+            let (y0, y1) = (start.y.min(end.y), start.y.max(end.y) + 1);
+            world_batch.push(
+                atlas.uv(table.white),
+                [(x0 + x1) as f32 / 2.0, (y0 + y1) as f32 / 2.0],
+                [(x1 - x0) as f32, (y1 - y0) as f32],
+                0.0,
+                [0.2, 0.55, 0.95, 0.3],
+            );
+        }
         if let Some(Drag::Remove(start)) = self.drag {
             let end = self.cursor_tile();
             let (x0, x1) = (start.x.min(end.x), start.x.max(end.x) + 1);
@@ -707,6 +852,7 @@ impl Game {
         hud.begin(self.camera.viewport[1]);
         match self.screen {
             Screen::MainMenu => self.main_menu(&mut ui, atlas, table, hud),
+            Screen::NewGame => self.new_game_screen(&mut ui, atlas, table, hud),
             Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
             Screen::PauseMenu => {
                 self.play_hud(&mut ui, atlas, table, hud);
@@ -786,7 +932,7 @@ impl Game {
 
         let r = self.menu_rects(3, ty + 170.0 * u);
         if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
-            self.new_game();
+            self.screen = Screen::NewGame;
         }
         if ui.button(
             hud,
@@ -846,11 +992,136 @@ impl Game {
         );
         let r = self.menu_rects(2, ty + 110.0 * u);
         if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
-            self.new_game();
+            self.screen = Screen::NewGame;
         }
         if ui.button(hud, atlas, white, r[1], "MAIN MENU", 3.0 * u, true) {
             self.screen = Screen::MainMenu;
             self.tool = None;
+        }
+    }
+
+    /// Раскладка экрана новой игры: размеры, сложности, «случайный seed», «старт», «назад».
+    pub fn new_game_layout(&self) -> ([Rect; 3], [Rect; 3], Rect, Rect, Rect) {
+        let u = self.u();
+        let vw = self.camera.viewport[0];
+        let (bw, bh, gap) = (170.0 * u, 44.0 * u, 12.0 * u);
+        let row = |y: f32| -> [Rect; 3] {
+            let x0 = (vw - (3.0 * bw + 2.0 * gap)) / 2.0;
+            [0, 1, 2].map(|i| [x0 + i as f32 * (bw + gap), y, bw, bh])
+        };
+        let top = self.camera.viewport[1] * 0.22;
+        let sizes = row(top + 60.0 * u);
+        let diffs = row(top + 160.0 * u);
+        let random = [vw / 2.0 + 110.0 * u, top + 240.0 * u, 170.0 * u, bh];
+        let start = [(vw - 340.0 * u) / 2.0, top + 320.0 * u, 340.0 * u, 52.0 * u];
+        let back = [(vw - 340.0 * u) / 2.0, top + 384.0 * u, 340.0 * u, 52.0 * u];
+        (sizes, diffs, random, start, back)
+    }
+
+    fn new_game_screen(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+        let u = self.u();
+        let (vw, vh) = (self.camera.viewport[0], self.camera.viewport[1]);
+        let white = table.white;
+        let (orange, steel, titanium) = (
+            rgba(palette::FORGE_ORANGE),
+            rgba(palette::STEEL_WHITE),
+            rgba(palette::TITANIUM),
+        );
+        hud.rect(atlas, white, [0.0, 0.0, vw, vh], [0.0, 0.0, 0.0, 0.78]);
+        let top = vh * 0.22;
+        let t = "NEW GAME";
+        hud.text(
+            atlas,
+            (vw - text_width(t, 5.0 * u)) / 2.0,
+            top - 50.0 * u,
+            5.0 * u,
+            t,
+            orange,
+        );
+        let (sizes, diffs, random, start, back) = self.new_game_layout();
+        let label = |hud: &mut Hud, y: f32, s: &str| {
+            hud.text(
+                atlas,
+                (vw - text_width(s, 2.0 * u)) / 2.0,
+                y,
+                2.0 * u,
+                s,
+                titanium,
+            );
+        };
+        label(hud, top + 34.0 * u, "MAP SIZE");
+        for (i, (name, size)) in [
+            ("SMALL", MapSize::Small),
+            ("MEDIUM", MapSize::Medium),
+            ("LARGE", MapSize::Large),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if ui.button(hud, atlas, white, sizes[i], name, 2.0 * u, true) {
+                self.map_size = size;
+            }
+            if self.map_size == size {
+                let r = sizes[i];
+                hud.rect(
+                    atlas,
+                    white,
+                    [r[0], r[1] + r[3] - 3.0 * u, r[2], 3.0 * u],
+                    orange,
+                );
+            }
+        }
+        label(hud, top + 134.0 * u, "DIFFICULTY (WAVE PACE)");
+        for (i, (name, d)) in [
+            ("EASY", Difficulty::Easy),
+            ("NORMAL", Difficulty::Normal),
+            ("HARD", Difficulty::Hard),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if ui.button(hud, atlas, white, diffs[i], name, 2.0 * u, true) {
+                self.difficulty = d;
+            }
+            if self.difficulty == d {
+                let r = diffs[i];
+                hud.rect(
+                    atlas,
+                    white,
+                    [r[0], r[1] + r[3] - 3.0 * u, r[2], 3.0 * u],
+                    orange,
+                );
+            }
+        }
+        let (first, spacing) = self.difficulty.timing_secs();
+        let pace = format!(
+            "FIRST WAVE {}:{:02}, THEN EVERY {}:{:02}",
+            first / 60,
+            first % 60,
+            spacing / 60,
+            spacing % 60
+        );
+        label(hud, diffs[0][1] + diffs[0][3] + 10.0 * u, &pace);
+        let seed = format!("SEED {}", self.seed);
+        hud.text(
+            atlas,
+            random[0] - 20.0 * u - text_width(&seed, 2.0 * u),
+            random[1] + 14.0 * u,
+            2.0 * u,
+            &seed,
+            steel,
+        );
+        if ui.button(hud, atlas, white, random, "RANDOM", 2.0 * u, true) {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos() as u64);
+            self.seed = (nanos ^ self.seed.rotate_left(17)) % 1_000_000;
+        }
+        if ui.button(hud, atlas, white, start, "START", 3.0 * u, true) {
+            self.new_game();
+        }
+        if ui.button(hud, atlas, white, back, "BACK", 3.0 * u, true) {
+            self.screen = Screen::MainMenu;
         }
     }
 
@@ -1130,6 +1401,8 @@ impl Game {
                 "",
                 "1-5 / CLICK         CHOOSE BUILDING",
                 "TAB / CLICK TAB     BUILDING CATEGORY",
+                "C + DRAG            COPY BUILDINGS (THEN CLICK TO PASTE)",
+                "F6 / F7             SAVE / LOAD SCHEMATIC",
                 "CLICK A BUILDING    INSPECT (SET SORTER FILTER)",
                 "LEFT CLICK          BUILD",
                 "LEFT DRAG           BUILD A LINE (BELTS TURN)",
@@ -1471,6 +1744,7 @@ impl Game {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use ferrustry_sim::scenario;
 
     struct Env {
         atlas: Atlas,
@@ -1533,6 +1807,9 @@ mod tests {
         let ty = 720.0 * 0.16;
         let new_game = g.menu_rects(3, ty + 170.0)[0];
         click(&mut g, &mut e, center(new_game));
+        assert_eq!(g.screen(), Screen::NewGame);
+        let (_, _, _, start, _) = g.new_game_layout();
+        click(&mut g, &mut e, center(start));
         assert_eq!(g.screen(), Screen::Playing);
         (g, e)
     }
@@ -1592,8 +1869,8 @@ mod tests {
         let (mut g, mut e) = playing();
         let before = g.world.buildings().len();
         g.handle(Input::Key(Key::Digit(1), true));
-        let a = TilePos::new(80, 50);
-        let b = TilePos::new(89, 50);
+        let a = TilePos::new(90, 60);
+        let b = TilePos::new(99, 60);
         click_tile(&mut g, a);
         frame(&mut g, &mut e);
         g.handle(Input::MouseDown(Button::Left));
@@ -1616,7 +1893,7 @@ mod tests {
     fn click_on_map_without_tool_explains_what_to_do() {
         let (mut g, mut e) = playing();
         g.message = None;
-        click_tile(&mut g, TilePos::new(60, 40));
+        click_tile(&mut g, TilePos::new(92, 68));
         frame(&mut g, &mut e);
         g.handle(Input::MouseDown(Button::Left));
         assert!(
@@ -1678,7 +1955,8 @@ mod tests {
         let (mut g, mut e) = playing();
         // поставить сортировщик (слот 3) в свободном месте и снять инструмент
         g.handle(Input::Key(Key::Digit(3), true));
-        let t = TilePos::new(70, 40);
+        // расчищенная площадка у ядра (центр 96,64 средней карты) гарантирована генератором
+        let t = TilePos::new(100, 68);
         click_tile(&mut g, t);
         frame(&mut g, &mut e);
         g.handle(Input::MouseDown(Button::Left));
@@ -1718,7 +1996,7 @@ mod tests {
         let (mut g, mut e) = playing();
         // ядро стоит 500 слитков + 100 стали, на старте 150 слитков
         g.tool = g.reg.block_by_name("core");
-        click_tile(&mut g, TilePos::new(60, 30));
+        click_tile(&mut g, TilePos::new(91, 67));
         frame(&mut g, &mut e);
         g.handle(Input::MouseDown(Button::Left));
         g.handle(Input::MouseUp(Button::Left));
@@ -1765,8 +2043,48 @@ mod tests {
         let vh = 720.0;
         let new_game = g.menu_rects(2, vh * 0.25 + 110.0)[0];
         click(&mut g, &mut e, center(new_game));
+        assert_eq!(g.screen(), Screen::NewGame);
+        let (_, _, _, start, _) = g.new_game_layout();
+        click(&mut g, &mut e, center(start));
         assert_eq!(g.world.outcome(), Outcome::Running);
         assert_eq!(g.screen(), Screen::Playing);
+    }
+
+    #[test]
+    fn copy_frame_then_paste_and_rotate() {
+        let (mut g, mut e) = playing();
+        g.handle(Input::Key(Key::Digit(1), true));
+        click_tile(&mut g, TilePos::new(90, 60));
+        frame(&mut g, &mut e);
+        g.handle(Input::MouseDown(Button::Left));
+        click_tile(&mut g, TilePos::new(93, 60));
+        g.handle(Input::MouseUp(Button::Left));
+        g.update(1.0 / 30.0 + 1e-6);
+        let before = g.world.buildings().len();
+        // C + рамка вокруг ленты
+        g.handle(Input::Key(Key::Copy, true));
+        assert!(g.selected_block().is_none());
+        click_tile(&mut g, TilePos::new(89, 59));
+        frame(&mut g, &mut e);
+        g.handle(Input::MouseDown(Button::Left));
+        click_tile(&mut g, TilePos::new(94, 61));
+        g.handle(Input::MouseUp(Button::Left));
+        let sch = g.paste.clone().expect("copied");
+        assert_eq!((sch.width, sch.height), (4, 1));
+        // вставка выше; призраки видны
+        click_tile(&mut g, TilePos::new(92, 68));
+        frame(&mut g, &mut e);
+        assert_eq!(g.ghosts.len(), 4);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        g.update(1.0 / 30.0 + 1e-6);
+        assert_eq!(g.world.buildings().len(), before + 4);
+        // R поворачивает схему; ПКМ выходит из режима вставки
+        g.handle(Input::Key(Key::Rotate, true));
+        let r = g.paste.as_ref().unwrap();
+        assert_eq!((r.width, r.height), (1, 4));
+        g.handle(Input::MouseDown(Button::Right));
+        assert!(g.paste.is_none());
     }
 
     #[test]

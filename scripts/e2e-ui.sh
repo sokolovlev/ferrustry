@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Сквозной тест интерфейса на настоящем окне (Linux, Xvfb + xdotool), только мышью:
-# главное меню -> NEW GAME -> клик по слоту ленты -> протяжка ленты -> Esc -> QUIT.
+# главное меню -> NEW GAME -> START -> клик по слоту ленты -> протяжка ленты -> Esc -> QUIT.
 # Проверяет, что игра закрылась через меню и что на карте появились постройки.
 # Координаты рассчитаны на окно 1280x720 и масштаб интерфейса 1 (см. Game::menu_rects/hotbar_rect).
 # Использование: scripts/e2e-ui.sh path/to/ferrustry [out_dir]
@@ -20,6 +20,9 @@ click() { xdotool mousemove "$1" "$2"; sleep 0.3; xdotool mousedown 1; sleep 0.1
 shot() { xwd -root -silent | convert xwd:- "$OUT/$1.png" 2>/dev/null || true; }
 shot e2e-menu
 click 640 311                     # NEW GAME
+shot e2e-newgame
+click 640 504                     # START (Game::new_game_layout)
+sleep 1
 click 535 648                     # слот 1: лента (вкладка LOGISTICS: 4 слота по 64+6 px, по центру)
 xdotool mousemove 300 450; sleep 0.3; xdotool mousedown 1; sleep 0.2
 xdotool mousemove 500 450; sleep 0.2; xdotool mousemove 700 450; sleep 0.2
@@ -33,6 +36,6 @@ if kill -0 $APP 2>/dev/null; then echo "FAIL: game did not quit via the pause me
 line=$(grep "exit at tick" "$OUT/e2e-ui.log" || true)
 echo "$line"
 n=$(echo "$line" | sed -E 's/.*buildings ([0-9]+).*/\1/')
-# стартовая база — 18 построек; протяжка добавляет ~13 лент
-if [ -z "$n" ] || [ "$n" -le 25 ]; then echo "FAIL: expected new buildings, got '${n}'"; exit 1; fi
+# на новой карте только ядро; протяжка добавляет ~13 лент
+if [ -z "$n" ] || [ "$n" -le 10 ]; then echo "FAIL: expected new buildings, got '${n}'"; exit 1; fi
 echo "PASS: built with the mouse, quit via menu ($n buildings)"
