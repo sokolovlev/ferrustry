@@ -111,6 +111,26 @@ pub(crate) struct BridgeRow {
     pub(crate) partner_epoch: u64,
 }
 
+/// Генератор: топливо в буфере и сколько тиков ещё горит текущий предмет.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct GeneratorRow {
+    /// Принимает ли топливо (копия из контента: связи строятся без реестра).
+    pub(crate) fueled: bool,
+    pub(crate) fuel: u32,
+    pub(crate) burn: u32,
+}
+
+/// Склад: количество каждого предмета и курсоры выдачи.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct DepotRow {
+    pub(crate) items: Vec<u32>,
+    pub(crate) total: u32,
+    /// Следующий предмет для выдачи (по кругу).
+    pub(crate) next_item: u32,
+    /// Следующий передний тайл для выдачи (по кругу).
+    pub(crate) next_side: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct BatteryRow {
     pub(crate) stored: u64,
@@ -168,7 +188,7 @@ impl Stats {
         }
     }
 
-    fn bump(v: &mut [u64], item: ItemId, n: u64) {
+    pub(crate) fn bump(v: &mut [u64], item: ItemId, n: u64) {
         if let Some(c) = v.get_mut(usize::from(item.0)) {
             *c += n;
         }
@@ -185,7 +205,8 @@ pub struct World {
     pub(crate) conveyors: Table<ConveyorRow>,
     pub(crate) drills: Table<DrillRow>,
     pub(crate) crafters: Table<CrafterRow>,
-    pub(crate) generators: Table<()>,
+    pub(crate) generators: Table<GeneratorRow>,
+    pub(crate) depots: Table<DepotRow>,
     pub(crate) nodes: Table<()>,
     pub(crate) cores: Table<CoreRow>,
     pub(crate) routers: Table<RouterRow>,
@@ -223,7 +244,7 @@ pub struct World {
     timers: Vec<Vec<(u64, Sleeper)>>,
     pub(crate) power: PowerState,
     rng: Rng,
-    stats: Stats,
+    pub(crate) stats: Stats,
 }
 
 const NO_SEGMENT: u32 = u32::MAX;
@@ -292,6 +313,7 @@ impl World {
             drills: Table::default(),
             crafters: Table::default(),
             generators: Table::default(),
+            depots: Table::default(),
             nodes: Table::default(),
             cores: Table::default(),
             routers: Table::default(),
@@ -470,6 +492,20 @@ impl World {
                 add(item, 1);
             }
         }
+        for row in &self.depots.rows {
+            for (i, &n) in row.items.iter().enumerate() {
+                add(ItemId(i as u16), n);
+            }
+        }
+        for (row, owner) in self.generators.rows.iter().zip(&self.generators.owners) {
+            if let Some(b) = self.buildings.get(*owner)
+                && let BlockKind::Generator {
+                    fuel: Some(fuel), ..
+                } = reg.block(b.block).kind
+            {
+                add(fuel, row.fuel);
+            }
+        }
         for (row, owner) in self.crafters.rows.iter().zip(&self.crafters.owners) {
             let Some(b) = self.buildings.get(*owner) else {
                 continue;
@@ -519,6 +555,7 @@ impl World {
         self.update_crafters(reg);
         self.update_heat(reg);
         self.update_routers(reg);
+        self.update_depots(reg);
         self.update_bridges(reg);
         self.update_conveyors(reg);
         self.update_combat(reg);
@@ -634,7 +671,8 @@ impl World {
             BlockKind::HeatPipe { .. } => KindTag::HeatPipe,
             BlockKind::Radiator { .. } => KindTag::Radiator,
             BlockKind::HeatEngine { .. } => KindTag::HeatEngine,
-            BlockKind::Turret { .. } => KindTag::Turret,
+            BlockKind::Turret { .. } | BlockKind::ArcTurret { .. } => KindTag::Turret,
+            BlockKind::Depot { .. } => KindTag::Depot,
             BlockKind::Wall => KindTag::Wall,
         };
         self.topo_epoch += 1;
@@ -691,7 +729,20 @@ impl World {
                     heat_acc: 0,
                 },
             ),
-            BlockKind::Generator { .. } => self.generators.push(id, ()),
+            BlockKind::Generator { fuel, .. } => self.generators.push(
+                id,
+                GeneratorRow {
+                    fueled: fuel.is_some(),
+                    ..Default::default()
+                },
+            ),
+            BlockKind::Depot { .. } => self.depots.push(
+                id,
+                DepotRow {
+                    items: vec![0; self.item_count as usize],
+                    ..Default::default()
+                },
+            ),
             BlockKind::PowerNode { .. } => self.nodes.push(id, ()),
             BlockKind::Core { .. } => self.cores.push(
                 id,
@@ -723,7 +774,9 @@ impl World {
             | BlockKind::HeatPipe { .. }
             | BlockKind::Radiator { .. }
             | BlockKind::Wall => self.passive.push(id, ()),
-            BlockKind::Turret { .. } => self.turrets.push(id, Default::default()),
+            BlockKind::Turret { .. } | BlockKind::ArcTurret { .. } => {
+                self.turrets.push(id, Default::default())
+            }
             BlockKind::Condenser { .. } => self.condensers.push(id, Default::default()),
             BlockKind::HeatEngine { .. } => self.engines.push(id, Default::default()),
         };
@@ -883,7 +936,21 @@ impl World {
             KindTag::Turret => self.turrets.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Condenser => self.condensers.swap_remove(b.row).map(|(_, m)| m),
             KindTag::HeatEngine => self.engines.swap_remove(b.row).map(|(_, m)| m),
-            KindTag::Generator => self.generators.swap_remove(b.row).map(|(_, m)| m),
+            KindTag::Generator => self.generators.swap_remove(b.row).map(|(row, m)| {
+                if let BlockKind::Generator {
+                    fuel: Some(fuel), ..
+                } = def.kind
+                {
+                    Stats::bump(&mut self.stats.destroyed, fuel, u64::from(row.fuel));
+                }
+                m
+            }),
+            KindTag::Depot => self.depots.swap_remove(b.row).map(|(row, m)| {
+                for (i, &n) in row.items.iter().enumerate() {
+                    Stats::bump(&mut self.stats.destroyed, ItemId(i as u16), u64::from(n));
+                }
+                m
+            }),
             KindTag::PowerNode => self.nodes.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Core => self.cores.swap_remove(b.row).map(|(row, m)| {
                 for (i, &n) in row.items.iter().enumerate() {
@@ -1145,6 +1212,18 @@ impl World {
                 }
             }
             KindTag::Crafter | KindTag::Core | KindTag::Turret => Link::Building(id),
+            KindTag::Generator => match self.generators.rows.get(b.row as usize) {
+                Some(g) if g.fueled => Link::Building(id),
+                _ => Link::Refuses,
+            },
+            KindTag::Depot => {
+                // склад не принимает с передней стороны: туда он выдаёт
+                if dir_between(target, from) == Some(b.rot) {
+                    Link::Refuses
+                } else {
+                    Link::Building(id)
+                }
+            }
             KindTag::Splitter | KindTag::Sorter | KindTag::Bridge => {
                 let Some(side) = dir_between(target, from) else {
                     return Link::Refuses;
@@ -1155,7 +1234,6 @@ impl World {
                 Link::Directed { id, side }
             }
             KindTag::Drill
-            | KindTag::Generator
             | KindTag::PowerNode
             | KindTag::Battery
             | KindTag::Pipe
@@ -1211,6 +1289,39 @@ impl World {
         };
         let row = b.row as usize;
         match b.tag {
+            KindTag::Generator => {
+                let BlockKind::Generator {
+                    fuel: Some(fuel),
+                    buffer,
+                    ..
+                } = reg.block(b.block).kind
+                else {
+                    return false;
+                };
+                match self.generators.rows.get_mut(row) {
+                    Some(g) if item == fuel && g.fuel < buffer => {
+                        g.fuel += 1;
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            KindTag::Depot => {
+                let BlockKind::Depot { capacity } = reg.block(b.block).kind else {
+                    return false;
+                };
+                let Some(d) = self.depots.rows.get_mut(row) else {
+                    return false;
+                };
+                match d.items.get_mut(usize::from(item.0)) {
+                    Some(n) if d.total < capacity => {
+                        *n += 1;
+                        d.total += 1;
+                        true
+                    }
+                    _ => false,
+                }
+            }
             KindTag::Turret => {
                 let BlockKind::Turret {
                     ammo,
@@ -1863,6 +1974,7 @@ impl World {
                 | KindTag::Radiator
                 | KindTag::Wall => (self.passive.len(), self.passive.owners.get(b.row as usize)),
                 KindTag::Turret => (self.turrets.len(), self.turrets.owners.get(b.row as usize)),
+                KindTag::Depot => (self.depots.len(), self.depots.owners.get(b.row as usize)),
                 KindTag::Condenser => (
                     self.condensers.len(),
                     self.condensers.owners.get(b.row as usize),
@@ -1900,6 +2012,13 @@ impl World {
                 return Err("core storage size mismatch".into());
             }
         }
+        for row in &self.depots.rows {
+            if row.items.len() != self.item_count as usize
+                || row.items.iter().map(|&n| u64::from(n)).sum::<u64>() != u64::from(row.total)
+            {
+                return Err("depot storage mismatch".into());
+            }
+        }
         let u = &self.units;
         if [
             u.x.len(),
@@ -1908,6 +2027,7 @@ impl World {
             u.cooldown.len(),
             u.vx.len(),
             u.vy.len(),
+            u.hold.len(),
         ]
         .iter()
         .any(|&n| n != u.kind.len())
@@ -1924,6 +2044,7 @@ impl World {
             p.vy.len(),
             p.damage.len(),
             p.ttl.len(),
+            p.hostile.len(),
         ]
         .iter()
         .any(|&n| n != p.x.len())
@@ -2024,8 +2145,21 @@ pub enum Detail {
     },
     /// Генератор.
     Generator {
-        /// Выработка за тик.
+        /// Выработка за тик (когда работает).
         power: u32,
+        /// Топливо в буфере (`None` — генератор без топлива).
+        fuel: Option<(ItemId, u32)>,
+        /// Работает ли сейчас.
+        running: bool,
+    },
+    /// Склад.
+    Depot {
+        /// Непустые запасы.
+        items: Vec<(ItemId, u32)>,
+        /// Всего предметов.
+        total: u32,
+        /// Ёмкость.
+        capacity: u32,
     },
     /// Узел энергосети.
     PowerNode,
@@ -2066,6 +2200,11 @@ pub enum Detail {
     Turret {
         /// Выстрелов в запасе.
         ammo: u32,
+    },
+    /// Дуговая турель.
+    ArcTurret {
+        /// Готовность разряда, тысячные.
+        charge: u32,
     },
     /// Стена.
     Wall,
@@ -2149,7 +2288,34 @@ impl World {
             (_, KindTag::Core) => Detail::Core {
                 items: self.cores.rows.get(row)?.items.clone(),
             },
-            (BlockKind::Generator { power }, _) => Detail::Generator { power: *power },
+            (BlockKind::Generator { power, fuel, .. }, _) => {
+                let r = self.generators.rows.get(row)?;
+                Detail::Generator {
+                    power: *power,
+                    fuel: fuel.map(|f| (f, r.fuel)),
+                    running: fuel.is_none() || r.burn > 0,
+                }
+            }
+            (BlockKind::Depot { capacity }, _) => {
+                let r = self.depots.rows.get(row)?;
+                Detail::Depot {
+                    items: r
+                        .items
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, &n)| n > 0)
+                        .map(|(i, &n)| (ItemId(i as u16), n))
+                        .collect(),
+                    total: r.total,
+                    capacity: *capacity,
+                }
+            }
+            (BlockKind::ArcTurret { reload, .. }, KindTag::Turret) => {
+                let cd = self.turrets.rows.get(row)?.cooldown;
+                Detail::ArcTurret {
+                    charge: 1000 - (cd * 1000 / (*reload).max(1)).min(1000),
+                }
+            }
             (_, KindTag::PowerNode) => Detail::PowerNode,
             (BlockKind::Battery { capacity }, _) => Detail::Battery {
                 stored: self.batteries.rows.get(row)?.stored,

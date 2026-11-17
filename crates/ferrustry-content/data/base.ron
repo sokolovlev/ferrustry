@@ -19,6 +19,10 @@
     units: [
         (name: "crawler", health: 40, speed: 20, damage: 6, cooldown: 20, radius: 80),
         (name: "brute", health: 260, speed: 10, damage: 25, cooldown: 30, radius: 120),
+        // плюётся с 4 тайлов: держится вне досягаемости стен, но в радиусе турелей
+        (name: "spitter", health: 50, speed: 14, damage: 8, cooldown: 45, radius: 80, range: 4, projectile_speed: 40),
+        // броня 8: пушечный снаряд (12) наносит лишь 4; дуговая турель броню игнорирует
+        (name: "shellback", health: 320, speed: 8, damage: 30, cooldown: 40, radius: 130, armor: 8),
     ],
     ores: [
         (name: "iron_vein", item: "iron_ore"),
@@ -72,6 +76,20 @@
             cost: [("iron_ingot", 10)],
             size: 1,
             kind: Generator(power: 2),
+        ),
+        (
+            name: "burner",
+            cost: [("iron_ingot", 25)],
+            size: 2,
+            // 1 уголь = 120 тиков по 12 энергии; горит, пока есть топливо
+            kind: Generator(power: 12, fuel: Some("carbon"), burn_ticks: 120, buffer: 10),
+        ),
+        (
+            name: "depot",
+            cost: [("iron_ingot", 20)],
+            size: 2,
+            // буфер: принимает с трёх сторон, выдаёт вперёд по 1 предмету за тик
+            kind: Depot(capacity: 300),
         ),
         (
             name: "power_node",
@@ -151,6 +169,14 @@
             health: 400,
             // 1 слиток = 4 выстрела по 12 урона; радиус 9 тайлов
             kind: Turret(range: 9, damage: 12, reload: 15, ammo: "iron_ingot", shots_per_item: 4, projectile_speed: 96, buffer: 10),
+        ),
+        (
+            name: "arc_tower",
+            cost: [("iron_ingot", 40), ("steel", 15)],
+            size: 2,
+            health: 350,
+            // разряд 30 урона каждые 25 тиков, 8 энергии за тик перезарядки; броня не помогает
+            kind: ArcTurret(range: 5, damage: 30, reload: 25, power_use: 8),
         ),
         (
             name: "iron_wall",

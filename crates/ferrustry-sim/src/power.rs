@@ -8,7 +8,7 @@ use ferrustry_content::{BlockKind, ContentRegistry};
 use serde::{Deserialize, Serialize};
 
 use crate::buildings::{Arena, BuildingId, KindTag};
-use crate::world::World;
+use crate::world::{Stats, World};
 
 /// Сводка одной сети за текущий тик.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +27,8 @@ pub struct PowerNet {
     pub battery_flow: i64,
     /// Остаток потока при распределении по батареям (служебное).
     pub(crate) pending: i64,
+    /// Выработка генераторов без топлива: постоянна до перестройки сети (служебное).
+    pub(crate) steady: u64,
 }
 
 /// Состояние энергосистемы.
@@ -134,25 +136,78 @@ impl World {
                 production: 0,
                 demand: 0,
                 satisfaction: 0,
+                steady: 0,
             })
             .collect();
+        // генераторы без топлива дают одно и то же каждый тик — считаем один раз
+        for (g, owner) in self.generators.rows.iter().zip(&self.generators.owners) {
+            if g.fueled {
+                continue;
+            }
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            if let (Some(n), BlockKind::Generator { power, .. }) =
+                (b.power_net, &reg.block(b.block).kind)
+                && let Some(net) = self.power.nets.get_mut(n as usize)
+            {
+                net.steady += u64::from(*power);
+            }
+        }
         self.power.dirty = false;
     }
 
     pub(crate) fn balance_power(&mut self, reg: &ContentRegistry) {
         for n in &mut self.power.nets {
-            n.production = 0;
+            n.production = n.steady;
             n.demand = 0;
         }
-        for owner in &self.generators.owners {
+        // топливные генераторы горят, пока есть топливо (горение не зависит от спроса — v0)
+        let (nets, stats) = (&mut self.power.nets, &mut self.stats);
+        for (g, owner) in self.generators.rows.iter_mut().zip(&self.generators.owners) {
+            if !g.fueled {
+                continue; // учтён в `steady`
+            }
             let Some(b) = self.buildings.get(*owner) else {
                 continue;
             };
-            if let (Some(n), BlockKind::Generator { power }) =
-                (b.power_net, &reg.block(b.block).kind)
-                && let Some(net) = self.power.nets.get_mut(n as usize)
+            let BlockKind::Generator {
+                power,
+                fuel,
+                burn_ticks,
+                ..
+            } = reg.block(b.block).kind
+            else {
+                continue;
+            };
+            let Some(fuel) = fuel else { continue };
+            if g.burn == 0 && g.fuel > 0 {
+                g.fuel -= 1;
+                g.burn = burn_ticks;
+                Stats::bump(&mut stats.consumed, fuel, 1);
+            }
+            if g.burn == 0 {
+                continue;
+            }
+            g.burn -= 1;
+            if let Some(net) = b.power_net.and_then(|n| nets.get_mut(n as usize)) {
+                net.production += u64::from(power);
+            }
+        }
+        // дуговые турели: спрос, пока идёт перезарядка
+        for (row, owner) in self.turrets.rows.iter().zip(&self.turrets.owners) {
+            if row.cooldown == 0 {
+                continue;
+            }
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            if let BlockKind::ArcTurret { power_use, .. } = reg.block(b.block).kind
+                && let Some(net) = b
+                    .power_net
+                    .and_then(|n| self.power.nets.get_mut(n as usize))
             {
-                net.production += u64::from(*power);
+                net.demand += u64::from(power_use);
             }
         }
         // тепловые машины: выработка, рассчитанная в прошлом тике

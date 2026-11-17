@@ -176,3 +176,53 @@ impl World {
         }
     }
 }
+
+impl World {
+    /// Склады: каждый выдаёт не больше одного предмета за тик на передние тайлы (по кругу).
+    /// Если очередной предмет никто не принимает, курсор переходит к следующему виду —
+    /// склад со смесью не застревает перед производством, которому нужен другой предмет.
+    pub(crate) fn update_depots(&mut self, reg: &ContentRegistry) {
+        for r in 0..self.depots.len() {
+            if self.depots.rows[r].total == 0 {
+                continue;
+            }
+            let Some(b) = self.buildings.get(self.depots.owners[r]) else {
+                continue;
+            };
+            let s = u32::from(b.size);
+            let side = match b.rot {
+                Dir::Down => 0,
+                Dir::Right => 1,
+                Dir::Up => 2,
+                Dir::Left => 3,
+            };
+            let front: [_; 8] = std::array::from_fn(|k| b.perimeter(side * s + (k as u32 % s)));
+            let row = &self.depots.rows[r];
+            let n = row.items.len() as u32;
+            let Some(idx) = (0..n)
+                .map(|k| (row.next_item + k) % n)
+                .find(|&i| row.items[i as usize] > 0)
+            else {
+                continue;
+            };
+            let item = ItemId(idx as u16);
+            let start = row.next_side;
+            let mut sent = None;
+            for k in 0..s {
+                let t = (start + k) % s;
+                let (outer, inner) = front[t as usize];
+                if self.offer(reg, outer, inner, item) {
+                    sent = Some(t);
+                    break;
+                }
+            }
+            let row = &mut self.depots.rows[r];
+            row.next_item = (idx + 1) % n;
+            if let Some(t) = sent {
+                row.items[idx as usize] -= 1;
+                row.total -= 1;
+                row.next_side = (t + 1) % s;
+            }
+        }
+    }
+}

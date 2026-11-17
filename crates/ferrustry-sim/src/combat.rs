@@ -31,6 +31,8 @@ pub struct Units {
     /// Смещение за последний тик (для упреждения при стрельбе).
     pub(crate) vx: Vec<i32>,
     pub(crate) vy: Vec<i32>,
+    /// Дальнобойный юнит стоит и стреляет (до конца перезарядки).
+    pub(crate) hold: Vec<bool>,
 }
 
 impl Units {
@@ -52,6 +54,7 @@ impl Units {
         self.cooldown.swap_remove(i);
         self.vx.swap_remove(i);
         self.vy.swap_remove(i);
+        self.hold.swap_remove(i);
     }
 }
 
@@ -64,6 +67,8 @@ pub struct Projectiles {
     pub(crate) vy: Vec<i32>,
     pub(crate) damage: Vec<u32>,
     pub(crate) ttl: Vec<u32>,
+    /// Снаряд врага: бьёт постройки, а не юнитов.
+    pub(crate) hostile: Vec<bool>,
 }
 
 impl Projectiles {
@@ -74,6 +79,17 @@ impl Projectiles {
         self.vy.swap_remove(i);
         self.damage.swap_remove(i);
         self.ttl.swap_remove(i);
+        self.hostile.swap_remove(i);
+    }
+
+    fn push(&mut self, x: i32, y: i32, v: (i32, i32), damage: u32, ttl: u32, hostile: bool) {
+        self.x.push(x);
+        self.y.push(y);
+        self.vx.push(v.0);
+        self.vy.push(v.1);
+        self.damage.push(damage);
+        self.ttl.push(ttl);
+        self.hostile.push(hostile);
     }
 }
 
@@ -114,6 +130,11 @@ pub(crate) struct TurretRow {
     pub(crate) cooldown: u32,
     /// Направление последнего выстрела (для отрисовки ствола).
     pub(crate) aim: (i32, i32),
+    /// Дуговая турель: накопленная энергия перезарядки, тысячные тика.
+    pub(crate) charge: u32,
+    /// Дуговая турель: тиков, пока виден разряд, и его конец (1/256 тайла).
+    pub(crate) flash: u32,
+    pub(crate) beam: (i32, i32),
 }
 
 /// Служебный буфер: не сохраняется и не участвует в сравнении миров (пересобирается каждый тик).
@@ -204,13 +225,19 @@ impl World {
         })
     }
 
-    /// Снаряды: (x, y) в 1/256 тайла.
-    pub fn projectiles(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
-        self.projectiles
-            .x
-            .iter()
-            .copied()
-            .zip(self.projectiles.y.iter().copied())
+    /// Снаряды: (x, y) в 1/256 тайла и признак вражеского снаряда.
+    pub fn projectiles(&self) -> impl Iterator<Item = (i32, i32, bool)> + '_ {
+        let p = &self.projectiles;
+        (0..p.x.len()).map(|i| (p.x[i], p.y[i], p.hostile[i]))
+    }
+
+    /// Видимый разряд дуговой турели: конец разряда в 1/256 тайла.
+    pub fn arc_beam(&self, b: &crate::buildings::Building) -> Option<(i32, i32)> {
+        if b.tag != KindTag::Turret {
+            return None;
+        }
+        let r = self.turrets.rows.get(b.row as usize)?;
+        (r.flash > 0).then_some(r.beam)
     }
 
     /// Исход партии.
@@ -257,6 +284,7 @@ impl World {
         self.units.cooldown.push(0);
         self.units.vx.push(0);
         self.units.vy.push(0);
+        self.units.hold.push(false);
     }
 
     /// Состав волны `n` (с 1): (тип, количество).
@@ -269,6 +297,17 @@ impl World {
             && n / 2 > 0
         {
             v.push((b, n / 2));
+        }
+        // с 3-й волны — дальнобойные, с 6-й — бронированные
+        if let Some(s) = reg.unit_by_name("spitter")
+            && n >= 3
+        {
+            v.push((s, (n - 1) / 2));
+        }
+        if let Some(s) = reg.unit_by_name("shellback")
+            && n >= 6
+        {
+            v.push((s, (n - 4) / 2));
         }
         v
     }
@@ -410,6 +449,25 @@ impl World {
             let (x, y) = (self.units.x[i], self.units.y[i]);
             self.units.vx[i] = 0;
             self.units.vy[i] = 0;
+            if def.range > 0 {
+                if self.units.cooldown[i] > 0 && self.units.hold[i] {
+                    continue; // перезаряжается на позиции
+                }
+                if self.units.cooldown[i] == 0 {
+                    let target = self.nearest_building(x, y, def.range as i32);
+                    self.units.hold[i] = target.is_some();
+                    if let Some((tx, ty)) = target {
+                        let sp = i64::from(def.projectile_speed);
+                        let (dx, dy) = (i64::from(tx - x), i64::from(ty - y));
+                        let d = isqrt(dx * dx + dy * dy).max(1);
+                        let v = ((dx * sp / d) as i32, (dy * sp / d) as i32);
+                        let ttl = (d / sp.max(1)) as u32 + 2;
+                        self.projectiles.push(x, y, v, damage, ttl, true);
+                        self.units.cooldown[i] = cd;
+                        continue;
+                    }
+                }
+            }
             let here = TilePos::new(x.div_euclid(SUB), y.div_euclid(SUB));
             let cur = self.flow_at(here);
             if cur == u32::MAX {
@@ -456,6 +514,29 @@ impl World {
             self.units.vx[i] = mx;
             self.units.vy[i] = my;
         }
+    }
+
+    /// Центр ближайшей постройки (1/256 тайла), чей тайл в радиусе `range` тайлов от точки.
+    /// Обход квадрата по строкам, при равенстве расстояний — первый найденный (детерминированно).
+    fn nearest_building(&self, x: i32, y: i32, range: i32) -> Option<(i32, i32)> {
+        let (tx, ty) = (x.div_euclid(SUB), y.div_euclid(SUB));
+        let r2 = i64::from(range * SUB).pow(2);
+        let mut best: Option<(i64, i32, i32)> = None;
+        for py in ty - range..=ty + range {
+            for px in tx - range..=tx + range {
+                let p = TilePos::new(px, py);
+                if !self.grid.in_bounds(p) || self.grid.building(p).is_none() {
+                    continue;
+                }
+                let (cx, cy) = (px * SUB + SUB / 2, py * SUB + SUB / 2);
+                let (dx, dy) = (i64::from(cx - x), i64::from(cy - y));
+                let d2 = dx * dx + dy * dy;
+                if d2 <= r2 && best.is_none_or(|(bd, ..)| d2 < bd) {
+                    best = Some((d2, cx, cy));
+                }
+            }
+        }
+        best.map(|(_, cx, cy)| (cx, cy))
     }
 
     /// Расталкивание перекрывающихся юнитов (не заходя на тайлы построек).
@@ -509,46 +590,104 @@ impl World {
         self.unit_grid.0 = g;
     }
 
-    fn update_turrets(&mut self, reg: &ContentRegistry) {
-        let no_targets = self.units.is_empty();
+    /// Перезарядка турелей — каждый тик, даже без врагов. Пушки: тик за тиком; дуговые —
+    /// пропорционально питанию сети (500‰ питания — вдвое дольше).
+    fn reload_turrets(&mut self, reg: &ContentRegistry) {
         for r in 0..self.turrets.len() {
             let row = &mut self.turrets.rows[r];
-            row.cooldown = row.cooldown.saturating_sub(1);
-            if row.cooldown > 0 || row.ammo == 0 || no_targets {
+            row.flash = row.flash.saturating_sub(1);
+            if row.cooldown == 0 {
                 continue;
             }
+            let Some(b) = self.buildings.get(self.turrets.owners[r]) else {
+                continue;
+            };
+            if !matches!(reg.block(b.block).kind, BlockKind::ArcTurret { .. }) {
+                self.turrets.rows[r].cooldown -= 1;
+                continue;
+            }
+            let sat = b
+                .power_net
+                .and_then(|n| self.power.nets.get(n as usize))
+                .map_or(0, |n| n.satisfaction);
+            let row = &mut self.turrets.rows[r];
+            row.charge += sat;
+            while row.charge >= 1000 && row.cooldown > 0 {
+                row.charge -= 1000;
+                row.cooldown -= 1;
+            }
+            if row.cooldown == 0 {
+                row.charge = 0;
+            }
+        }
+    }
+
+    /// Ближайший живой юнит в радиусе `reach` от точки: (квадрат расстояния, индекс).
+    fn nearest_unit(&self, cx: i32, cy: i32, reach: i32) -> Option<(i64, usize)> {
+        let mut best: Option<(i64, usize)> = None;
+        let units = &self.units;
+        self.unit_grid.0.for_each_near(cx, cy, reach, |j| {
+            if units.health[j] > 0 {
+                let (dx, dy) = (i64::from(units.x[j] - cx), i64::from(units.y[j] - cy));
+                let d2 = dx * dx + dy * dy;
+                if d2 <= i64::from(reach) * i64::from(reach) && best.is_none_or(|(bd, _)| d2 < bd) {
+                    best = Some((d2, j));
+                }
+            }
+            true
+        });
+        best
+    }
+
+    fn update_turrets(&mut self, reg: &ContentRegistry) {
+        if self.units.is_empty() {
+            return;
+        }
+        for r in 0..self.turrets.len() {
+            let row = &self.turrets.rows[r];
+            if row.cooldown > 0 {
+                continue;
+            }
+            let has_ammo = row.ammo > 0;
             let owner = self.turrets.owners[r];
             let Some(b) = self.buildings.get(owner) else {
                 continue;
             };
-            let BlockKind::Turret {
-                range,
-                damage,
-                reload,
-                projectile_speed,
-                ..
-            } = reg.block(b.block).kind
-            else {
-                continue;
-            };
             let half = i32::from(b.size) * SUB / 2;
             let (cx, cy) = (b.origin.x * SUB + half, b.origin.y * SUB + half);
-            let reach = range as i32 * SUB;
-            let mut best: Option<(i64, usize)> = None;
-            let units = &self.units;
-            self.unit_grid.0.for_each_near(cx, cy, reach, |j| {
-                if units.health[j] > 0 {
-                    let (dx, dy) = (i64::from(units.x[j] - cx), i64::from(units.y[j] - cy));
-                    let d2 = dx * dx + dy * dy;
-                    if d2 <= i64::from(reach) * i64::from(reach)
-                        && best.is_none_or(|(bd, _)| d2 < bd)
-                    {
-                        best = Some((d2, j));
-                    }
+            let (range, damage, reload, projectile_speed) = match reg.block(b.block).kind {
+                BlockKind::Turret {
+                    range,
+                    damage,
+                    reload,
+                    projectile_speed,
+                    ..
+                } if has_ammo => (range, damage, reload, projectile_speed),
+                BlockKind::ArcTurret {
+                    range,
+                    damage,
+                    reload,
+                    ..
+                } => {
+                    // разряд: мгновенно, сквозь броню; без питания перезарядка не идёт
+                    let Some((_, j)) = self.nearest_unit(cx, cy, range as i32 * SUB) else {
+                        continue;
+                    };
+                    let (ux, uy) = (self.units.x[j], self.units.y[j]);
+                    self.units.health[j] = self.units.health[j].saturating_sub(damage);
+                    let row = &mut self.turrets.rows[r];
+                    row.cooldown = reload;
+                    row.charge = 0;
+                    row.flash = 4;
+                    row.beam = (ux, uy);
+                    row.aim = (ux - cx, uy - cy);
+                    continue;
                 }
-                true
-            });
-            let Some((d2, j)) = best else { continue };
+                _ => continue,
+            };
+            let Some((d2, j)) = self.nearest_unit(cx, cy, range as i32 * SUB) else {
+                continue;
+            };
             let sp = i64::from(projectile_speed);
             // упреждение: куда цель сместится за время полёта снаряда (одна итерация)
             let flight = isqrt(d2) / sp.max(1);
@@ -556,14 +695,15 @@ impl World {
             let ty = i64::from(self.units.y[j]) + i64::from(self.units.vy[j]) * flight;
             let (dx, dy) = (tx - i64::from(cx), ty - i64::from(cy));
             let d = isqrt(dx * dx + dy * dy).max(1);
-            let p = &mut self.projectiles;
-            p.x.push(cx);
-            p.y.push(cy);
-            p.vx.push((dx * sp / d) as i32);
-            p.vy.push((dy * sp / d) as i32);
-            p.damage.push(damage);
-            p.ttl
-                .push((u64::from(range) * SUB as u64 / u64::from(projectile_speed)) as u32 + 4);
+            let ttl = (u64::from(range) * SUB as u64 / u64::from(projectile_speed)) as u32 + 4;
+            self.projectiles.push(
+                cx,
+                cy,
+                ((dx * sp / d) as i32, (dy * sp / d) as i32),
+                damage,
+                ttl,
+                false,
+            );
             let row = &mut self.turrets.rows[r];
             row.ammo -= 1;
             row.cooldown = reload;
@@ -579,6 +719,24 @@ impl World {
             p.y[i] += p.vy[i];
             p.ttl[i] -= 1;
             let (x, y, dmg) = (p.x[i], p.y[i], p.damage[i]);
+            if p.hostile[i] {
+                // снаряд врага: попадает в любую постройку на своём тайле
+                let t = TilePos::new(x.div_euclid(SUB), y.div_euclid(SUB));
+                let target = self
+                    .grid
+                    .in_bounds(t)
+                    .then(|| self.grid.building(t))
+                    .flatten();
+                if let Some(id) = target {
+                    self.damage_building(reg, id, dmg);
+                }
+                if target.is_some() || self.projectiles.ttl[i] == 0 {
+                    self.projectiles.swap_remove(i);
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
             let mut hit = None;
             let units = &self.units;
             self.unit_grid.0.for_each_near(x, y, SUB, |j| {
@@ -593,7 +751,10 @@ impl World {
                 true
             });
             if let Some(j) = hit {
-                self.units.health[j] = self.units.health[j].saturating_sub(dmg);
+                // броня: вычитается из урона, но урон не ниже трети исходного
+                let armor = reg.unit(self.units.kind[j]).armor;
+                let eff = dmg.saturating_sub(armor).max(dmg / 3);
+                self.units.health[j] = self.units.health[j].saturating_sub(eff);
             }
             if hit.is_some() || self.projectiles.ttl[i] == 0 {
                 self.projectiles.swap_remove(i);
@@ -617,6 +778,7 @@ impl World {
     /// Боевой шаг тика.
     pub(crate) fn update_combat(&mut self, reg: &ContentRegistry) {
         self.update_waves(reg);
+        self.reload_turrets(reg);
         if self.units.is_empty() && self.projectiles.x.is_empty() {
             return;
         }

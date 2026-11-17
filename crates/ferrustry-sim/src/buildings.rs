@@ -51,6 +51,8 @@ pub enum KindTag {
     Turret,
     /// Стена.
     Wall,
+    /// Склад.
+    Depot,
 }
 
 /// Общие данные постройки.

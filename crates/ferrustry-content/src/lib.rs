@@ -137,6 +137,15 @@ struct RawUnit {
     damage: u32,
     cooldown: u32,
     radius: u32,
+    /// Броня: вычитается из урона снарядов (не ниже трети урона).
+    #[serde(default)]
+    armor: u32,
+    /// Дальность атаки в тайлах (0 — ближний бой).
+    #[serde(default)]
+    range: u32,
+    /// Скорость снаряда дальнобойного юнита, 1/256 тайла за тик.
+    #[serde(default)]
+    projectile_speed: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -173,6 +182,15 @@ enum RawKind {
         projectile_speed: u32,
         buffer: u32,
     },
+    ArcTurret {
+        range: u32,
+        damage: u32,
+        reload: u32,
+        power_use: u32,
+    },
+    Depot {
+        capacity: u32,
+    },
     Wall,
     Condenser {
         fluid: String,
@@ -200,6 +218,12 @@ enum RawKind {
     },
     Generator {
         power: u32,
+        #[serde(default)]
+        fuel: Option<String>,
+        #[serde(default)]
+        burn_ticks: u32,
+        #[serde(default)]
+        buffer: u32,
     },
     PowerNode {
         range: u32,
@@ -319,6 +343,23 @@ pub enum BlockKind {
         /// Ёмкость в предметах.
         buffer: u32,
     },
+    /// Электрическая турель: без боеприпасов, перезаряжается от энергосети, бьёт мгновенно
+    /// и игнорирует броню.
+    ArcTurret {
+        /// Радиус в тайлах.
+        range: u32,
+        /// Урон разряда.
+        damage: u32,
+        /// Тиков перезарядки при полном питании.
+        reload: u32,
+        /// Потребление энергии за тик перезарядки.
+        power_use: u32,
+    },
+    /// Склад: принимает любые предметы со всех сторон, кроме передней, и выдаёт их вперёд.
+    Depot {
+        /// Общая ёмкость в предметах.
+        capacity: u32,
+    },
     /// Стена: только прочность.
     Wall,
     /// Труба: соединяет жидкостные постройки в сеть.
@@ -369,10 +410,16 @@ pub enum BlockKind {
         /// Теплоёмкость.
         heat_capacity: u32,
     },
-    /// Генератор с постоянной выработкой.
+    /// Генератор: без топлива работает всегда, с топливом — пока горит.
     Generator {
         /// Выработка энергии за тик.
         power: u32,
+        /// Топливо (`None` — работает без топлива).
+        fuel: Option<ItemId>,
+        /// Тиков горения одного предмета топлива.
+        burn_ticks: u32,
+        /// Ёмкость топливного буфера.
+        buffer: u32,
     },
     /// Узел энергосети.
     PowerNode {
@@ -440,6 +487,12 @@ pub struct UnitDef {
     pub cooldown: u32,
     /// Радиус, 1/256 тайла.
     pub radius: u32,
+    /// Броня: вычитается из урона снарядов (урон не ниже трети исходного).
+    pub armor: u32,
+    /// Дальность атаки в тайлах (0 — ближний бой).
+    pub range: u32,
+    /// Скорость снаряда дальнобойного юнита, 1/256 тайла за тик.
+    pub projectile_speed: u32,
 }
 
 impl BlockDef {
@@ -449,7 +502,8 @@ impl BlockDef {
             BlockKind::Generator { .. }
             | BlockKind::PowerNode { .. }
             | BlockKind::Battery { .. }
-            | BlockKind::HeatEngine { .. } => true,
+            | BlockKind::HeatEngine { .. }
+            | BlockKind::ArcTurret { .. } => true,
             BlockKind::Crafter { power_use, .. } | BlockKind::Condenser { power_use, .. } => {
                 *power_use > 0
             }
@@ -575,6 +629,11 @@ impl ContentRegistry {
             ] {
                 positive(v, || format!("units[{i}] `{}`.{f}", u.name))?;
             }
+            if u.range > 0 {
+                positive(u.projectile_speed, || {
+                    format!("units[{i}] `{}`.projectile_speed", u.name)
+                })?;
+            }
             units.push(UnitDef {
                 name: u.name.clone(),
                 health: u.health,
@@ -582,6 +641,9 @@ impl ContentRegistry {
                 damage: u.damage,
                 cooldown: u.cooldown,
                 radius: u.radius,
+                armor: u.armor,
+                range: u.range,
+                projectile_speed: u.projectile_speed,
             });
         }
         let ore_names = index_names(raw.ores.iter().map(|f| f.name.clone()), "ore", OreId)?;
@@ -685,9 +747,58 @@ impl ContentRegistry {
                         heat_capacity,
                     }
                 }
-                RawKind::Generator { power } => {
+                RawKind::Generator {
+                    power,
+                    fuel,
+                    burn_ticks,
+                    buffer,
+                } => {
                     positive(power, || p("power"))?;
-                    BlockKind::Generator { power }
+                    let fuel = match fuel {
+                        Some(f) => {
+                            positive(burn_ticks, || p("burn_ticks"))?;
+                            positive(buffer, || p("buffer"))?;
+                            Some(resolve(&item_names, &f, "item", || p("fuel"))?)
+                        }
+                        None => None,
+                    };
+                    BlockKind::Generator {
+                        power,
+                        fuel,
+                        burn_ticks,
+                        buffer,
+                    }
+                }
+                RawKind::ArcTurret {
+                    range,
+                    damage,
+                    reload,
+                    power_use,
+                } => {
+                    for (v, f) in [
+                        (range, "range"),
+                        (damage, "damage"),
+                        (reload, "reload"),
+                        (power_use, "power_use"),
+                    ] {
+                        positive(v, || p(f))?;
+                    }
+                    BlockKind::ArcTurret {
+                        range,
+                        damage,
+                        reload,
+                        power_use,
+                    }
+                }
+                RawKind::Depot { capacity } => {
+                    positive(capacity, || p("capacity"))?;
+                    if block.size > 8 {
+                        return Err(ContentError::Invalid {
+                            path: p("size"),
+                            reason: "depots can be at most 8 tiles wide".into(),
+                        });
+                    }
+                    BlockKind::Depot { capacity }
                 }
                 RawKind::PowerNode { range } => {
                     positive(range, || p("range"))?;

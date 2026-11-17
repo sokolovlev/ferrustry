@@ -125,13 +125,19 @@ const SCHEMATIC_FILE: &str = "ferrustry-schematic.fschem";
 const CATEGORIES: [(&str, &[&str]); 5] = [
     (
         "LOGISTICS",
-        &["conveyor", "splitter", "sorter", "bridge_conveyor"],
+        &["conveyor", "splitter", "sorter", "bridge_conveyor", "depot"],
     ),
     ("PRODUCTION", &["bore", "smelter", "steel_forge", "core"]),
-    ("DEFENSE", &["gun_turret", "iron_wall"]),
+    ("DEFENSE", &["gun_turret", "arc_tower", "iron_wall"]),
     (
         "POWER",
-        &["wind_turbine", "power_node", "battery", "heat_engine"],
+        &[
+            "wind_turbine",
+            "burner",
+            "power_node",
+            "battery",
+            "heat_engine",
+        ],
     ),
     (
         "FLUIDS+HEAT",
@@ -1492,7 +1498,34 @@ impl Game {
                     ));
                 }
             }
-            Detail::Generator { power } => lines.push(format!("OUTPUT {power} / TICK")),
+            Detail::Generator {
+                power,
+                fuel,
+                running,
+            } => {
+                lines.push(if *running {
+                    format!("OUTPUT {power} / TICK")
+                } else {
+                    "NO FUEL".to_owned()
+                });
+                if let Some((item, n)) = fuel {
+                    lines.push(format!("FUEL {} {n}", self.item_name(*item)));
+                }
+            }
+            Detail::Depot {
+                items,
+                total,
+                capacity,
+            } => {
+                lines.push(format!("STORED {total} / {capacity}"));
+                for (i, n) in items {
+                    lines.push(format!("{:<11}{n:>6}", self.item_name(*i)));
+                }
+                lines.push("OUTPUT: FRONT SIDE".to_owned());
+            }
+            Detail::ArcTurret { charge } => {
+                lines.push(format!("CHARGE {}%", charge / 10));
+            }
             Detail::PowerNode => lines.push("CONNECTS BUILDINGS IN RANGE".to_owned()),
             Detail::Battery { stored, capacity } => {
                 lines.push(format!(
@@ -1665,7 +1698,32 @@ impl Game {
                     String::new()
                 }
             ),
-            BlockKind::Generator { power } => format!("{name}: +{power} POWER"),
+            BlockKind::Generator {
+                power, fuel: None, ..
+            } => format!("{name}: +{power} POWER"),
+            BlockKind::Generator {
+                power,
+                fuel: Some(fuel),
+                burn_ticks,
+                ..
+            } => format!(
+                "{name} {0}X{0}: +{power} POWER WHILE BURNING {1} ({burn_ticks} TICKS EACH)",
+                d.size,
+                self.item_name(*fuel)
+            ),
+            BlockKind::Depot { capacity } => format!(
+                "{name} {0}X{0}: STORES {capacity} ITEMS, OUTPUTS FORWARD",
+                d.size
+            ),
+            BlockKind::ArcTurret {
+                range,
+                damage,
+                power_use,
+                ..
+            } => format!(
+                "{name} {0}X{0}: RANGE {range}, DAMAGE {damage}, IGNORES ARMOR, POWER {power_use}",
+                d.size
+            ),
             BlockKind::PowerNode { range } => format!("{name}: LINKS POWER WITHIN {range} TILES"),
             BlockKind::Core { capacity } => {
                 format!("{name} {0}X{0}: STORES {capacity} OF EACH ITEM", d.size)

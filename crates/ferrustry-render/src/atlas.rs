@@ -245,6 +245,36 @@ fn draw_unit(name: &str) -> Canvas {
     let dark = [0x5A, 0x14, 0x24, 0xFF];
     let eye = [0xFF, 0xE0, 0x4A, 0xFF];
     match name {
+        "spitter" => {
+            // вытянутое тело с «жерлом» спереди
+            let mut c = Canvas::new(24, 24);
+            for dy in [-1.0, 1.0] {
+                c.thick_line((8.0, 12.0), (3.0, 12.0 + dy * 8.0), 1.2, dark);
+                c.thick_line((13.0, 12.0), (12.0, 12.0 + dy * 9.0), 1.2, dark);
+            }
+            c.disc(11.0, 12.0, 7.0, dark);
+            c.disc(11.0, 12.0, 5.5, body);
+            c.disc(18.0, 12.0, 3.5, dark);
+            c.disc(18.0, 12.0, 2.0, [0xC8, 0xE0, 0x3A, 0xFF]);
+            c.disc(13.0, 9.0, 1.4, eye);
+            c.disc(13.0, 15.0, 1.4, eye);
+            c
+        }
+        "shellback" => {
+            // тяжёлый панцирь из пластин
+            let mut c = Canvas::new(44, 44);
+            let plate = [0x6E, 0x5A, 0x66, 0xFF];
+            c.disc(22.0, 22.0, 19.0, dark);
+            c.disc(22.0, 22.0, 16.5, plate);
+            for r in [12.0, 7.0] {
+                c.ring(22.0, 22.0, r - 1.2, r, dark);
+            }
+            c.thick_line((6.0, 22.0), (38.0, 22.0), 1.0, dark);
+            c.disc(22.0, 22.0, 4.0, body);
+            c.disc(37.0, 18.0, 2.5, eye);
+            c.disc(37.0, 26.0, 2.5, eye);
+            c
+        }
         "brute" => {
             let mut c = Canvas::new(40, 40);
             c.disc(20.0, 20.0, 17.0, dark);
@@ -438,6 +468,42 @@ fn draw_block(name: &str, size: u8) -> Canvas {
                 c.fill(x, y, 4, 4, TITANIUM);
             }
         }
+        "arc_tower" => {
+            c.frame(2, 6);
+            c.disc(32.0, 32.0, 20.0, SHADOW);
+            for r in [18.0, 13.0, 8.0] {
+                c.ring(32.0, 32.0, r - 2.0, r, shade(TITANIUM, -10));
+            }
+            c.disc(32.0, 32.0, 5.0, [0x9C, 0xC4, 0xFF, 0xFF]);
+            c.disc(32.0, 32.0, 2.5, STEEL_WHITE);
+            for (x, y) in [(9, 9), (51, 9), (9, 51), (51, 51)] {
+                c.fill(x, y, 4, 4, TITANIUM);
+            }
+        }
+        "burner" => {
+            c.frame(2, 5);
+            c.fill(14, 10, 36, 30, SHADOW);
+            for y in 0..26 {
+                let col = if y < 10 { MOLTEN_GOLD } else { FORGE_ORANGE };
+                c.fill(16, 12 + y, 32, 1, shade(col, -(y * 4)));
+            }
+            for i in 0..5 {
+                c.fill(16 + i * 7, 12, 3, 26, SHADOW);
+            }
+            c.fill(24, 46, 16, 10, shade(TITANIUM, -20));
+            c.fill(28, 48, 8, 8, SHADOW);
+        }
+        "depot" => {
+            c.frame(2, 4);
+            for (x, y) in [(10, 10), (34, 10), (10, 34), (34, 34)] {
+                c.fill(x, y, 20, 20, shade(TITANIUM, -35));
+                c.fill(x, y, 20, 2, shade(TITANIUM, 5));
+                c.fill(x + 9, y, 2, 20, SHADOW);
+            }
+            // стрелка выдачи «вправо» (спрайт поворачивается вместе с постройкой)
+            c.thick_line((50.0, 26.0), (58.0, 32.0), 2.0, FORGE_ORANGE);
+            c.thick_line((50.0, 38.0), (58.0, 32.0), 2.0, FORGE_ORANGE);
+        }
         "iron_wall" => {
             c.fill(0, 0, 32, 32, SHADOW);
             c.fill(1, 1, 30, 30, shade(TITANIUM, -45));
@@ -581,6 +647,12 @@ impl Atlas {
             let mut c = Canvas::new(8, 8);
             c.disc(4.0, 4.0, 3.5, shade(MOLTEN_GOLD, -40));
             c.disc(4.0, 4.0, 2.2, STEEL_WHITE);
+            c
+        }));
+        items.push(("spit".into(), {
+            let mut c = Canvas::new(8, 8);
+            c.disc(4.0, 4.0, 3.6, [0x5A, 0x14, 0x24, 0xFF]);
+            c.disc(4.0, 4.0, 2.4, [0xC8, 0xE0, 0x3A, 0xFF]);
             c
         }));
         items.push(("turret_barrel".into(), {

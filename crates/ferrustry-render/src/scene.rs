@@ -18,6 +18,7 @@ pub struct SpriteTable {
     blocks: Vec<[f32; 4]>,
     units: Vec<[f32; 4]>,
     projectile: [f32; 4],
+    spit: [f32; 4],
     barrel: [f32; 4],
     white_uv: [f32; 4],
     /// Белый пиксель (для прямоугольников).
@@ -56,6 +57,7 @@ impl SpriteTable {
                 .map(|d| uv(format!("unit:{}", d.name)))
                 .collect(),
             projectile: uv("projectile".into()),
+            spit: uv("spit".into()),
             barrel: uv("turret_barrel".into()),
             white_uv: atlas.uv(white),
             white,
@@ -118,6 +120,8 @@ pub fn item_world_pos(tile: TilePos, dir: Dir, off: u32) -> [f32; 2] {
 }
 
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+/// Свечение разряда дуговой турели (линейные цвета).
+const ARC_GLOW: [f32; 4] = [0.30, 0.55, 1.0, 0.75];
 
 /// Заполняет пакет мира: пол и руда видимых тайлов, постройки, предметы на лентах, призраки.
 pub fn build_world(
@@ -162,7 +166,9 @@ pub fn build_world(
         }
         let directional = matches!(
             b.tag,
-            ferrustry_sim::KindTag::Conveyor | ferrustry_sim::KindTag::Bridge
+            ferrustry_sim::KindTag::Conveyor
+                | ferrustry_sim::KindTag::Bridge
+                | ferrustry_sim::KindTag::Depot
         );
         let rot = if directional {
             quarter_turns(b.rot)
@@ -267,7 +273,22 @@ pub fn build_world(
         if !visible(c[0], c[1], s) {
             continue;
         }
-        if let Some((ax, ay)) = world.turret_aim(b) {
+        if let Some((bx, by)) = world.arc_beam(b) {
+            // разряд: отрезок от центра турели до цели (поворот спрайта «белого пикселя»)
+            let (ex, ey) = (bx as f32 / sub, by as f32 / sub);
+            let (dx, dy) = (ex - c[0], ey - c[1]);
+            let len = (dx * dx + dy * dy).sqrt();
+            let turns = dy.atan2(dx) / std::f32::consts::FRAC_PI_2;
+            let mid = [(c[0] + ex) / 2.0, (c[1] + ey) / 2.0];
+            batch.push(white_uv, mid, [len, 0.14], turns, ARC_GLOW);
+            batch.push(white_uv, mid, [len, 0.05], turns, WHITE);
+        }
+        if let Some((ax, ay)) = world.turret_aim(b)
+            && !matches!(
+                reg.block(b.block).kind,
+                ferrustry_content::BlockKind::ArcTurret { .. }
+            )
+        {
             let turns = if ax == 0 && ay == 0 {
                 0.0
             } else {
@@ -287,10 +308,15 @@ pub fn build_world(
             );
         }
     }
-    for (x, y) in world.projectiles() {
+    for (x, y, hostile) in world.projectiles() {
         let (fx, fy) = (x as f32 / sub, y as f32 / sub);
         if visible(fx, fy, 0.5) {
-            batch.push(table.projectile, [fx, fy], [0.25, 0.25], 0.0, WHITE);
+            let (sprite, size) = if hostile {
+                (table.spit, 0.3)
+            } else {
+                (table.projectile, 0.25)
+            };
+            batch.push(sprite, [fx, fy], [size, size], 0.0, WHITE);
         }
     }
 
@@ -307,6 +333,7 @@ pub fn build_world(
             reg.block(g.block).kind,
             ferrustry_content::BlockKind::Conveyor { .. }
                 | ferrustry_content::BlockKind::Bridge { .. }
+                | ferrustry_content::BlockKind::Depot { .. }
         ) {
             quarter_turns(g.rot)
         } else {
