@@ -55,6 +55,14 @@ impl App {
         }
     }
 
+    /// Тик мира и число построек (для журнала при выходе и сквозных тестов).
+    pub fn stats(&self) -> (u64, usize) {
+        (
+            self.game.world.tick_count(),
+            self.game.world.buildings().len(),
+        )
+    }
+
     fn init_gfx(&mut self, el: &ActiveEventLoop) -> Result<Gfx, String> {
         let attrs = Window::default_attributes()
             .with_title("Ferrustry")
@@ -97,6 +105,7 @@ impl App {
         let renderer = Renderer::new(&gpu.device, &gpu.queue, format, &self.atlas);
         self.game
             .handle(Input::Resize([config.width as f32, config.height as f32]));
+        self.game.handle(Input::Scale(window.scale_factor() as f32));
         Ok(Gfx {
             window,
             surface,
@@ -112,7 +121,7 @@ impl App {
         self.last = now;
         self.game.update(dt);
         for r in self.game.take_requests() {
-            self.service(r);
+            self.service(r, el);
         }
         let Some(gfx) = self.gfx.as_mut() else { return };
         self.game.frame(
@@ -159,20 +168,17 @@ impl App {
         }
     }
 
-    fn service(&mut self, r: Request) {
+    fn service(&mut self, r: Request, el: &ActiveEventLoop) {
         let path = Game::quicksave_path();
         match r {
             Request::Save => {
                 let res = ferrustry_format::write_save(&self.game.world, &self.game.reg)
                     .map_err(|e| e.to_string())
                     .and_then(|b| std::fs::write(path, b).map_err(|e| e.to_string()));
-                match res {
-                    Ok(()) => self.game.notify("SAVED"),
-                    Err(e) => {
-                        eprintln!("ferrustry: save failed: {e}");
-                        self.game.notify("SAVE FAILED");
-                    }
+                if let Err(e) = &res {
+                    eprintln!("ferrustry: save failed: {e}");
                 }
+                self.game.saved(res.is_ok());
             }
             Request::Load => {
                 let res = std::fs::read(path)
@@ -180,17 +186,12 @@ impl App {
                     .and_then(|b| {
                         ferrustry_format::read_save(&b, &self.game.reg).map_err(|e| e.to_string())
                     });
-                match res {
-                    Ok(w) => {
-                        self.game.world = w;
-                        self.game.notify("LOADED");
-                    }
-                    Err(e) => {
-                        eprintln!("ferrustry: load failed: {e}");
-                        self.game.notify("LOAD FAILED");
-                    }
+                if let Err(e) = &res {
+                    eprintln!("ferrustry: load failed: {e}");
                 }
+                self.game.loaded(res.ok());
             }
+            Request::Quit => el.exit(),
         }
     }
 }
@@ -211,6 +212,7 @@ fn map_key(code: KeyCode) -> Option<Key> {
         KeyCode::Escape => Key::Cancel,
         KeyCode::F5 => Key::Save,
         KeyCode::F9 => Key::Load,
+        KeyCode::F1 => Key::Help,
         KeyCode::Equal | KeyCode::NumpadAdd => Key::Faster,
         KeyCode::Minus | KeyCode::NumpadSubtract => Key::Slower,
         KeyCode::KeyW | KeyCode::ArrowUp => Key::PanUp,
@@ -242,6 +244,9 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => el.exit(),
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.game.handle(Input::Scale(scale_factor as f32));
+            }
             WindowEvent::Resized(size) => {
                 if let Some(g) = self.gfx.as_mut() {
                     g.config.width = size.width.max(1);

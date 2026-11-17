@@ -1,12 +1,14 @@
-//! Логика клиента, не зависящая от окна: ввод, камера, инструменты стройки, фиксированный шаг
-//! симуляции, сборка кадра. Тестируется без GPU и без оконной системы.
+//! Логика клиента, не зависящая от окна: экраны и меню, ввод, камера, инструменты стройки,
+//! фиксированный шаг симуляции, сборка кадра. Тестируется без GPU и без оконной системы.
 
 use std::collections::BTreeSet;
 
 use ferrustry_content::{BlockId, BlockKind, ContentRegistry};
 use ferrustry_render::atlas::palette;
 use ferrustry_render::{Atlas, Camera, Ghost, Hud, SpriteBatch, SpriteTable, build_world, rgba};
-use ferrustry_sim::{Command, Dir, TICKS_PER_SECOND, TilePos, World};
+use ferrustry_sim::{Command, Dir, TICKS_PER_SECOND, TilePos, World, scenario};
+
+use crate::ui::{Rect, Ui, text_width};
 
 /// Кнопка мыши.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +30,7 @@ pub enum Key {
     Rotate,
     /// Пауза.
     Pause,
-    /// Сброс инструмента.
+    /// Esc: сброс инструмента / меню.
     Cancel,
     /// Быстрое сохранение.
     Save,
@@ -38,6 +40,8 @@ pub enum Key {
     Faster,
     /// Замедлить симуляцию.
     Slower,
+    /// Справка.
+    Help,
     /// Панорама вверх.
     PanUp,
     /// Панорама вниз.
@@ -63,6 +67,8 @@ pub enum Input {
     Key(Key, bool),
     /// Новый размер окна.
     Resize([f32; 2]),
+    /// Масштаб экрана ОС (DPI): 1.0, 1.25, 1.5, 2.0...
+    Scale(f32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,6 +78,17 @@ enum Drag {
     Pan([f32; 2]),
 }
 
+/// Экран игры.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    /// Главное меню (мир живёт на фоне).
+    MainMenu,
+    /// Игра.
+    Playing,
+    /// Меню паузы (симуляция стоит).
+    PauseMenu,
+}
+
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
@@ -79,6 +96,8 @@ pub enum Request {
     Save,
     /// Загрузить мир.
     Load,
+    /// Закрыть игру.
+    Quit,
 }
 
 const QUICKSAVE: &str = "ferrustry-quicksave.fsave";
@@ -91,6 +110,8 @@ pub struct Game {
     pub world: World,
     /// Камера.
     pub camera: Camera,
+    screen: Screen,
+    seed: u64,
     hotbar: Vec<BlockId>,
     tool: Option<usize>,
     rot: Dir,
@@ -107,6 +128,10 @@ pub struct Game {
     tps: RateMeter,
     ghosts: Vec<Ghost>,
     dirs: Vec<Dir>,
+    ui: Ui,
+    ui_scale: f32,
+    show_help: bool,
+    quicksave_exists: bool,
 }
 
 /// Скользящий счётчик частоты.
@@ -130,7 +155,7 @@ impl RateMeter {
 }
 
 impl Game {
-    /// Новая игра на мире `world`; камера смотрит на центр карты.
+    /// Новая игра на мире `world`, открывается главное меню.
     pub fn new(reg: ContentRegistry, world: World, viewport: [f32; 2]) -> Self {
         let order = [
             "conveyor",
@@ -150,6 +175,8 @@ impl Game {
             reg,
             world,
             camera: Camera::new(center, 32.0, viewport),
+            screen: Screen::MainMenu,
+            seed: 1,
             hotbar,
             tool: None,
             rot: Dir::Right,
@@ -166,15 +193,30 @@ impl Game {
             tps: RateMeter::default(),
             ghosts: Vec::new(),
             dirs: Vec::new(),
+            ui: Ui::default(),
+            ui_scale: 1.0,
+            show_help: false,
+            quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
+    }
+
+    /// Сразу перейти к игре (минуя меню) — для `--load`, скриншотов и тестов.
+    pub fn start_playing(&mut self) {
+        self.screen = Screen::Playing;
+    }
+
+    /// Текущий экран.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn screen(&self) -> Screen {
+        self.screen
     }
 
     /// Показать сообщение на несколько секунд.
     pub fn notify(&mut self, text: impl Into<String>) {
-        self.message = Some((text.into(), 3.0));
+        self.message = Some((text.into(), 3.5));
     }
 
-    /// Забирает накопленные запросы к окружению (сохранение/загрузка).
+    /// Забирает накопленные запросы к окружению.
     pub fn take_requests(&mut self) -> Vec<Request> {
         std::mem::take(&mut self.requests)
     }
@@ -182,6 +224,49 @@ impl Game {
     /// Путь быстрого сохранения.
     pub fn quicksave_path() -> &'static str {
         QUICKSAVE
+    }
+
+    /// Результат сохранения (вызывает окружение).
+    pub fn saved(&mut self, ok: bool) {
+        self.quicksave_exists |= ok;
+        self.notify(if ok { "GAME SAVED" } else { "SAVE FAILED" });
+    }
+
+    /// Результат загрузки (вызывает окружение): при успехе — сразу в игру.
+    pub fn loaded(&mut self, world: Option<World>) {
+        match world {
+            Some(w) => {
+                self.world = w;
+                self.drag = None;
+                self.pending.clear();
+                self.screen = Screen::Playing;
+                self.notify("GAME LOADED");
+            }
+            None => self.notify("NO SAVE TO LOAD"),
+        }
+    }
+
+    fn new_game(&mut self) {
+        match scenario::demo_map(&self.reg, self.seed) {
+            Ok(w) => {
+                self.world = w;
+                self.camera.center = [
+                    self.world.grid().width() as f32 / 2.0,
+                    self.world.grid().height() as f32 / 2.0,
+                ];
+                self.camera.zoom = 32.0;
+                self.tool = None;
+                self.drag = None;
+                self.pending.clear();
+                self.paused = false;
+                self.screen = Screen::Playing;
+                self.message = Some((
+                    "CHOOSE A BUILDING BELOW (OR 1-7), THEN CLICK THE MAP".into(),
+                    8.0,
+                ));
+            }
+            Err(e) => self.notify(format!("CANNOT CREATE MAP: {e}")),
+        }
     }
 
     /// Выбранная постройка.
@@ -204,18 +289,28 @@ impl Game {
     pub fn handle(&mut self, input: Input) {
         match input {
             Input::Resize(v) => self.camera.viewport = v,
+            Input::Scale(s) => self.ui_scale = (s * 4.0).round().max(4.0) / 4.0,
             Input::CursorMoved(p) => {
                 if let Some(Drag::Pan(last)) = self.drag {
                     self.camera.pan_pixels(p[0] - last[0], p[1] - last[1]);
                     self.drag = Some(Drag::Pan(p));
                 }
                 self.cursor = p;
+                self.ui.mouse = p;
             }
+            Input::Key(k, down) => self.key(k, down),
+            _ if self.screen != Screen::Playing => self.menu_mouse(input),
+            Input::MouseDown(Button::Left) if self.ui.blocks(self.cursor) => {
+                self.ui.pressed_at = Some(self.cursor);
+            }
+            Input::MouseUp(Button::Left) if self.ui.pressed_at.is_some() => self.ui.released = true,
             Input::Wheel(d) => self.camera.zoom_at(1.15f32.powf(d), self.cursor),
             Input::MouseDown(Button::Middle) => self.drag = Some(Drag::Pan(self.cursor)),
             Input::MouseDown(Button::Left) => {
                 if self.selected_block().is_some() {
                     self.drag = Some(Drag::Build(self.cursor_tile()));
+                } else {
+                    self.notify("CHOOSE A BUILDING BELOW (OR 1-7)");
                 }
             }
             Input::MouseDown(Button::Right) => {
@@ -242,7 +337,15 @@ impl Game {
                     _ => {} // отпущена другая кнопка — жест продолжается
                 }
             }
-            Input::Key(k, down) => self.key(k, down),
+        }
+    }
+
+    /// Мышь в меню: только левая кнопка для интерфейса.
+    fn menu_mouse(&mut self, input: Input) {
+        match input {
+            Input::MouseDown(Button::Left) => self.ui.pressed_at = Some(self.cursor),
+            Input::MouseUp(Button::Left) if self.ui.pressed_at.is_some() => self.ui.released = true,
+            _ => {}
         }
     }
 
@@ -255,22 +358,29 @@ impl Game {
             _ => None,
         };
         if let Some(i) = idx {
-            self.pan_keys[i] = down;
+            self.pan_keys[i] = down && self.screen == Screen::Playing;
             return;
         }
         if !down {
             return;
         }
-        match k {
-            Key::Digit(d) => {
-                let i = usize::from(d.saturating_sub(1));
-                self.tool = if self.tool == Some(i) || i >= self.hotbar.len() {
-                    None
+        match (self.screen, k) {
+            (Screen::PauseMenu, Key::Cancel) => self.screen = Screen::Playing,
+            (Screen::Playing, Key::Cancel) => {
+                if self.show_help {
+                    self.show_help = false;
+                } else if self.tool.is_some() || self.drag.is_some() {
+                    self.tool = None;
+                    self.drag = None;
                 } else {
-                    Some(i)
-                };
+                    self.screen = Screen::PauseMenu;
+                }
             }
-            Key::Rotate => {
+            (Screen::Playing, Key::Digit(d)) => {
+                let i = usize::from(d.saturating_sub(1));
+                self.select(i);
+            }
+            (Screen::Playing, Key::Rotate) => {
                 self.rot = match self.rot {
                     Dir::Right => Dir::Down,
                     Dir::Down => Dir::Left,
@@ -278,17 +388,22 @@ impl Game {
                     Dir::Up => Dir::Right,
                 }
             }
-            Key::Pause => self.paused = !self.paused,
-            Key::Cancel => {
-                self.tool = None;
-                self.drag = None;
-            }
-            Key::Save => self.requests.push(Request::Save),
-            Key::Load => self.requests.push(Request::Load),
-            Key::Faster => self.speed = (self.speed * 2).min(8),
-            Key::Slower => self.speed = (self.speed / 2).max(1),
+            (Screen::Playing, Key::Pause) => self.paused = !self.paused,
+            (Screen::Playing, Key::Help) => self.show_help = !self.show_help,
+            (Screen::Playing | Screen::PauseMenu, Key::Save) => self.requests.push(Request::Save),
+            (_, Key::Load) => self.requests.push(Request::Load),
+            (Screen::Playing, Key::Faster) => self.speed = (self.speed * 2).min(8),
+            (Screen::Playing, Key::Slower) => self.speed = (self.speed / 2).max(1),
             _ => {}
         }
+    }
+
+    fn select(&mut self, i: usize) {
+        self.tool = if self.tool == Some(i) || i >= self.hotbar.len() {
+            None
+        } else {
+            Some(i)
+        };
     }
 
     /// Команды стройки от тайла `start` до `end`. Ленты — «уголком» (сначала по X, затем по Y)
@@ -396,6 +511,7 @@ impl Game {
     }
 
     /// Продвигает игру на `dt` секунд реального времени: панорама, фиксированные тики (30 Hz).
+    /// В меню паузы симуляция стоит; в главном меню мир живёт на фоне.
     pub fn update(&mut self, dt: f64) {
         let dt = dt.clamp(0.0, 0.25);
         self.fps.tick(dt, 1);
@@ -412,7 +528,12 @@ impl Game {
             }
         }
         let mut ticks = 0;
-        if !self.paused {
+        let running = match self.screen {
+            Screen::MainMenu => true,
+            Screen::Playing => !self.paused,
+            Screen::PauseMenu => false,
+        };
+        if running {
             let step = 1.0 / f64::from(TICKS_PER_SECOND);
             self.accumulator += dt * f64::from(self.speed);
             // не больше 8 тиков за кадр — защита от «спирали смерти»
@@ -431,7 +552,7 @@ impl Game {
         self.tps.tick(dt, ticks);
     }
 
-    /// Собирает кадр: слой мира и слой интерфейса.
+    /// Собирает кадр: слой мира и слой интерфейса (и обрабатывает клики по интерфейсу).
     pub fn frame(
         &mut self,
         atlas: &Atlas,
@@ -441,7 +562,11 @@ impl Game {
     ) {
         world_batch.clear();
         self.ghosts.clear();
-        if let Some(block) = self.selected_block() {
+        let over_ui = self.ui.blocks(self.cursor);
+        if self.screen == Screen::Playing
+            && !over_ui
+            && let Some(_) = self.selected_block()
+        {
             let end = self.cursor_tile();
             let start = match self.drag {
                 Some(Drag::Build(s)) => s,
@@ -458,7 +583,6 @@ impl Game {
                     });
                 }
             }
-            let _ = block;
         }
         build_world(
             world_batch,
@@ -481,12 +605,166 @@ impl Game {
                 [0.9, 0.15, 0.1, 0.35],
             );
         }
-        self.build_hud(atlas, table, hud);
+
+        let mut ui = std::mem::take(&mut self.ui);
+        ui.begin();
+        hud.begin(self.camera.viewport[1]);
+        match self.screen {
+            Screen::MainMenu => self.main_menu(&mut ui, atlas, table, hud),
+            Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
+            Screen::PauseMenu => {
+                self.play_hud(&mut ui, atlas, table, hud);
+                self.pause_menu(&mut ui, atlas, table, hud);
+            }
+        }
+        self.toast(atlas, table, hud);
+        ui.end();
+        self.ui = ui;
     }
 
-    fn build_hud(&self, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+    /// Масштаб интерфейса (по DPI, не меньше 1).
+    fn u(&self) -> f32 {
+        self.ui_scale.max(1.0)
+    }
+
+    /// Прямоугольники кнопок вертикального меню по центру экрана.
+    pub fn menu_rects(&self, n: usize, top: f32) -> Vec<Rect> {
+        let u = self.u();
+        let (w, h, gap) = (340.0 * u, 52.0 * u, 12.0 * u);
+        let x = (self.camera.viewport[0] - w) / 2.0;
+        (0..n)
+            .map(|i| [x, top + i as f32 * (h + gap), w, h])
+            .collect()
+    }
+
+    /// Прямоугольник слота панели построек.
+    pub fn hotbar_rect(&self, i: usize) -> Rect {
+        let u = self.u();
+        let (slot, gap) = (64.0 * u, 6.0 * u);
+        let n = self.hotbar.len() as f32;
+        let total = n * slot + (n - 1.0) * gap;
+        let x0 = (self.camera.viewport[0] - total) / 2.0;
+        let y0 = self.camera.viewport[1] - slot - 40.0 * u;
+        [x0 + i as f32 * (slot + gap), y0, slot, slot]
+    }
+
+    fn main_menu(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+        let u = self.u();
         let (vw, vh) = (self.camera.viewport[0], self.camera.viewport[1]);
-        hud.begin(vh);
+        let white = table.white;
+        hud.rect(atlas, white, [0.0, 0.0, vw, vh], [0.0, 0.0, 0.0, 0.72]);
+        let title = "FERRUSTRY";
+        let ts = 10.0 * u;
+        let ty = vh * 0.16;
+        hud.text(
+            atlas,
+            (vw - text_width(title, ts)) / 2.0,
+            ty,
+            ts,
+            title,
+            rgba(palette::FORGE_ORANGE),
+        );
+        let sub = "REFORGE THE INDUSTRY";
+        hud.text(
+            atlas,
+            (vw - text_width(sub, 3.0 * u)) / 2.0,
+            ty + 84.0 * u,
+            3.0 * u,
+            sub,
+            rgba(palette::STEEL_WHITE),
+        );
+        let desc = "INDUSTRIAL STRATEGY, REENGINEERED IN RUST";
+        hud.text(
+            atlas,
+            (vw - text_width(desc, 2.0 * u)) / 2.0,
+            ty + 116.0 * u,
+            2.0 * u,
+            desc,
+            rgba(palette::TITANIUM),
+        );
+
+        let r = self.menu_rects(3, ty + 170.0 * u);
+        if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
+            self.new_game();
+        }
+        if ui.button(
+            hud,
+            atlas,
+            white,
+            r[1],
+            "CONTINUE",
+            3.0 * u,
+            self.quicksave_exists,
+        ) {
+            self.requests.push(Request::Load);
+        }
+        if ui.button(hud, atlas, white, r[2], "QUIT", 3.0 * u, true) {
+            self.requests.push(Request::Quit);
+        }
+        let ver = concat!("V", env!("CARGO_PKG_VERSION"), "  EARLY PROTOTYPE");
+        hud.text(
+            atlas,
+            12.0 * u,
+            vh - 22.0 * u,
+            2.0 * u,
+            ver,
+            rgba(palette::TITANIUM),
+        );
+    }
+
+    fn pause_menu(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+        let u = self.u();
+        let (vw, vh) = (self.camera.viewport[0], self.camera.viewport[1]);
+        let white = table.white;
+        hud.rect(atlas, white, [0.0, 0.0, vw, vh], [0.0, 0.0, 0.0, 0.5]);
+        let top = vh * 0.28;
+        let r = self.menu_rects(5, top);
+        let panel = [
+            r[0][0] - 24.0 * u,
+            top - 70.0 * u,
+            r[0][2] + 48.0 * u,
+            r[4][1] + r[4][3] - top + 94.0 * u,
+        ];
+        ui.panel(hud, atlas, white, panel, [0.02, 0.025, 0.04, 0.92]);
+        let t = "PAUSED";
+        hud.text(
+            atlas,
+            (vw - text_width(t, 4.0 * u)) / 2.0,
+            top - 50.0 * u,
+            4.0 * u,
+            t,
+            rgba(palette::FORGE_ORANGE),
+        );
+        let s = 3.0 * u;
+        if ui.button(hud, atlas, white, r[0], "RESUME", s, true) {
+            self.screen = Screen::Playing;
+        }
+        if ui.button(hud, atlas, white, r[1], "SAVE  (F5)", s, true) {
+            self.requests.push(Request::Save);
+        }
+        if ui.button(
+            hud,
+            atlas,
+            white,
+            r[2],
+            "LOAD  (F9)",
+            s,
+            self.quicksave_exists,
+        ) {
+            self.requests.push(Request::Load);
+        }
+        if ui.button(hud, atlas, white, r[3], "MAIN MENU", s, true) {
+            self.screen = Screen::MainMenu;
+            self.tool = None;
+        }
+        if ui.button(hud, atlas, white, r[4], "QUIT", s, true) {
+            self.requests.push(Request::Quit);
+        }
+    }
+
+    fn play_hud(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+        let u = self.u();
+        let (vw, vh) = (self.camera.viewport[0], self.camera.viewport[1]);
         let white = table.white;
         let panel = [0.02, 0.025, 0.04, 0.82];
         let orange = rgba(palette::FORGE_ORANGE);
@@ -494,8 +772,8 @@ impl Game {
         let titanium = rgba(palette::TITANIUM);
 
         // заголовок и статус
-        hud.rect(atlas, white, [0.0, 0.0, 360.0, 64.0], panel);
-        hud.text(atlas, 12.0, 10.0, 3.0, "FERRUSTRY", orange);
+        ui.panel(hud, atlas, white, [0.0, 0.0, 380.0 * u, 64.0 * u], panel);
+        hud.text(atlas, 12.0 * u, 10.0 * u, 3.0 * u, "FERRUSTRY", orange);
         let status = format!(
             "TICK {}  FPS {:.0}  TPS {:.0}  X{}{}",
             self.world.tick_count(),
@@ -504,118 +782,264 @@ impl Game {
             self.speed,
             if self.paused { "  PAUSED" } else { "" }
         );
-        hud.text(atlas, 12.0, 40.0, 2.0, &status, steel);
+        hud.text(atlas, 12.0 * u, 40.0 * u, 2.0 * u, &status, steel);
 
-        // ресурсы в ядрах
+        // кнопка меню в правом верхнем углу и ресурсы ядер под ней
+        let mb = [vw - 110.0 * u, 8.0 * u, 100.0 * u, 34.0 * u];
+        if ui.button(hud, atlas, white, mb, "MENU", 2.0 * u, true) {
+            self.screen = Screen::PauseMenu;
+        }
         let core = self.world.total_core_items();
-        let lines: Vec<String> = self
-            .reg
-            .items()
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                format!(
-                    "{:<11}{:>6}",
-                    d.name.replace('_', " "),
-                    core.get(i).copied().unwrap_or(0)
-                )
-            })
-            .collect();
-        let pw = 230.0;
-        hud.rect(
+        let pw = 240.0 * u;
+        let rows = self.reg.items().len() as f32;
+        ui.panel(
+            hud,
             atlas,
             white,
-            [vw - pw, 0.0, pw, 18.0 + lines.len() as f32 * 18.0],
+            [vw - pw, 50.0 * u, pw, 30.0 * u + rows * 18.0 * u],
             panel,
         );
-        for (i, l) in lines.iter().enumerate() {
-            hud.text(atlas, vw - pw + 10.0, 8.0 + i as f32 * 18.0, 2.0, l, steel);
+        hud.text(
+            atlas,
+            vw - pw + 10.0 * u,
+            58.0 * u,
+            2.0 * u,
+            "CORE STORAGE",
+            orange,
+        );
+        for (i, d) in self.reg.items().iter().enumerate() {
+            let l = format!(
+                "{:<11}{:>6}",
+                d.name.replace('_', " "),
+                core.get(i).copied().unwrap_or(0)
+            );
+            hud.text(
+                atlas,
+                vw - pw + 10.0 * u,
+                78.0 * u + i as f32 * 18.0 * u,
+                2.0 * u,
+                &l,
+                steel,
+            );
         }
 
-        // панель построек
-        let slot = 64.0;
-        let gap = 6.0;
-        let n = self.hotbar.len() as f32;
-        let total = n * slot + (n - 1.0) * gap;
-        let x0 = (vw - total) / 2.0;
-        let y0 = vh - slot - 34.0;
-        for (i, &b) in self.hotbar.iter().enumerate() {
-            let x = x0 + i as f32 * (slot + gap);
+        // панель построек: клик выбирает, наведение — подсказка
+        let mut tooltip = None;
+        for i in 0..self.hotbar.len() {
+            let r = self.hotbar_rect(i);
+            let b = self.hotbar[i];
+            ui.block(r);
             let selected = self.tool == Some(i);
-            if selected {
+            let hover = ui.hovered(r);
+            if selected || hover {
+                let c = if selected {
+                    orange
+                } else {
+                    rgba(palette::MOLTEN_GOLD)
+                };
                 hud.rect(
                     atlas,
                     white,
-                    [x - 3.0, y0 - 3.0, slot + 6.0, slot + 6.0],
-                    orange,
+                    [
+                        r[0] - 3.0 * u,
+                        r[1] - 3.0 * u,
+                        r[2] + 6.0 * u,
+                        r[3] + 6.0 * u,
+                    ],
+                    c,
                 );
             }
-            hud.rect(atlas, white, [x, y0, slot, slot], panel);
+            hud.rect(atlas, white, r, panel);
+            let pad = 6.0 * u;
             hud.batch.push(
                 table.block(b),
-                [x + slot / 2.0, vh - (y0 + slot / 2.0)],
-                [slot - 12.0, slot - 12.0],
+                [r[0] + r[2] / 2.0, vh - (r[1] + r[3] / 2.0)],
+                [r[2] - 2.0 * pad, r[3] - 2.0 * pad],
                 0.0,
                 [1.0; 4],
             );
             hud.text(
                 atlas,
-                x + 4.0,
-                y0 + 4.0,
-                2.0,
+                r[0] + 4.0 * u,
+                r[1] + 4.0 * u,
+                2.0 * u,
                 &(i + 1).to_string(),
                 if selected { orange } else { titanium },
             );
+            if ui.clicked(r) {
+                self.select(i);
+            }
+            if hover {
+                tooltip = Some((i, r));
+            }
         }
-        let label = match self.selected_block() {
-            Some(b) => format!(
-                "{}  ROT {:?}",
-                self.reg.block(b).name.replace('_', " "),
+        let label = match (tooltip, self.selected_block()) {
+            (Some((i, _)), _) => self.block_info(self.hotbar[i]),
+            (None, Some(b)) => format!(
+                "{}   R: ROTATE ({:?})   RMB: CANCEL",
+                self.block_info(b),
                 self.rot
             ),
-            None => "SELECT 1-7".to_owned(),
+            (None, None) => "CHOOSE A BUILDING (CLICK OR 1-7), THEN CLICK THE MAP".to_owned(),
         };
-        let lw = label.len() as f32 * 12.0;
-        hud.text(atlas, (vw - lw) / 2.0, y0 - 22.0, 2.0, &label, steel);
+        let r0 = self.hotbar_rect(0);
+        let lw = text_width(&label, 2.0 * u);
+        ui.panel(
+            hud,
+            atlas,
+            white,
+            [
+                (vw - lw) / 2.0 - 10.0 * u,
+                r0[1] - 34.0 * u,
+                lw + 20.0 * u,
+                26.0 * u,
+            ],
+            panel,
+        );
         hud.text(
             atlas,
-            10.0,
-            vh - 14.0,
-            1.0,
-            "LMB BUILD/DRAG  RMB REMOVE/CANCEL  R ROTATE  WASD/MMB PAN  WHEEL ZOOM  SPACE PAUSE  +/- SPEED  F5 SAVE  F9 LOAD",
+            (vw - lw) / 2.0,
+            r0[1] - 28.0 * u,
+            2.0 * u,
+            &label,
+            steel,
+        );
+        hud.text(
+            atlas,
+            10.0 * u,
+            vh - 24.0 * u,
+            2.0 * u,
+            "F1 HELP   ESC MENU",
             titanium,
         );
 
-        // подсказка под курсором
-        let t = self.cursor_tile();
-        let under = self
-            .world
-            .grid()
-            .building(t)
-            .and_then(|id| self.world.buildings().get(id))
-            .map(|b| self.reg.block(b.block).name.replace('_', " "));
-        let tip = match under {
-            Some(n) => format!("{},{}  {}", t.x, t.y, n),
-            None => format!("{},{}", t.x, t.y),
-        };
-        hud.text(
-            atlas,
-            self.cursor[0] + 16.0,
-            self.cursor[1] + 16.0,
-            2.0,
-            &tip,
-            steel,
-        );
+        // подсказка под курсором (только над картой и только в игре)
+        if self.screen == Screen::Playing && !ui.blocks(self.cursor) {
+            let t = self.cursor_tile();
+            let under = self
+                .world
+                .grid()
+                .building(t)
+                .and_then(|id| self.world.buildings().get(id))
+                .map(|b| self.reg.block(b.block).name.replace('_', " "));
+            let tip = match under {
+                Some(n) => format!("{},{}  {}", t.x, t.y, n),
+                None => format!("{},{}", t.x, t.y),
+            };
+            hud.text(
+                atlas,
+                self.cursor[0] + 16.0 * u,
+                self.cursor[1] + 16.0 * u,
+                2.0 * u,
+                &tip,
+                steel,
+            );
+        }
 
+        if self.show_help {
+            let lines = [
+                "CONTROLS",
+                "",
+                "1-7 / CLICK PANEL   CHOOSE BUILDING",
+                "LEFT CLICK          BUILD",
+                "LEFT DRAG           BUILD A LINE (BELTS TURN)",
+                "R                   ROTATE",
+                "RIGHT CLICK         CANCEL TOOL",
+                "RIGHT DRAG          REMOVE AREA",
+                "WASD / ARROWS / MMB MOVE CAMERA",
+                "WHEEL               ZOOM",
+                "SPACE               PAUSE",
+                "+ / -               SIMULATION SPEED",
+                "F5 / F9             QUICK SAVE / LOAD",
+                "ESC                 MENU",
+                "",
+                "BORES ON ORE -> BELTS -> SMELTER (NEEDS POWER)",
+                "-> BELTS -> CORE.  TURBINES MUST TOUCH THE SMELTER",
+                "OR CONNECT THROUGH A POWER NODE.",
+            ];
+            let s = 2.0 * u;
+            let w = lines.iter().map(|l| text_width(l, s)).fold(0.0, f32::max) + 40.0 * u;
+            let h = lines.len() as f32 * 18.0 * u + 40.0 * u;
+            let (x, y) = ((vw - w) / 2.0, (vh - h) / 2.0);
+            ui.panel(hud, atlas, white, [x, y, w, h], [0.02, 0.025, 0.04, 0.94]);
+            for (i, l) in lines.iter().enumerate() {
+                let c = if i == 0 { orange } else { steel };
+                hud.text(
+                    atlas,
+                    x + 20.0 * u,
+                    y + 20.0 * u + i as f32 * 18.0 * u,
+                    s,
+                    l,
+                    c,
+                );
+            }
+        }
+    }
+
+    /// Краткое описание постройки для подсказки.
+    fn block_info(&self, b: BlockId) -> String {
+        let d = self.reg.block(b);
+        let name = d.name.replace('_', " ");
+        match &d.kind {
+            BlockKind::Conveyor { .. } => format!("{name}: MOVES ITEMS"),
+            BlockKind::Drill { .. } => format!("{name} {0}X{0}: MINES ORE UNDER IT", d.size),
+            BlockKind::Crafter {
+                inputs,
+                outputs,
+                power_use,
+                ..
+            } => {
+                let fmt = |v: &Vec<ferrustry_content::ItemStack>| {
+                    v.iter()
+                        .map(|s| {
+                            format!(
+                                "{} {}",
+                                s.count,
+                                self.reg.item(s.item).name.replace('_', " ")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" + ")
+                };
+                format!(
+                    "{name} {}X{}: {} -> {}, POWER {}",
+                    d.size,
+                    d.size,
+                    fmt(inputs),
+                    fmt(outputs),
+                    power_use
+                )
+            }
+            BlockKind::Generator { power } => format!("{name}: +{power} POWER"),
+            BlockKind::PowerNode { range } => format!("{name}: LINKS POWER WITHIN {range} TILES"),
+            BlockKind::Core { capacity } => {
+                format!("{name} {0}X{0}: STORES {capacity} OF EACH ITEM", d.size)
+            }
+        }
+    }
+
+    fn toast(&self, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
         if let Some((m, _)) = &self.message {
-            let w = m.len() as f32 * 18.0;
+            let u = self.u();
+            let vw = self.camera.viewport[0];
+            let s = 2.0 * u;
+            let w = text_width(m, s);
+            let r = [(vw - w) / 2.0 - 14.0 * u, 76.0 * u, w + 28.0 * u, 34.0 * u];
+            hud.rect(atlas, table.white, r, [0.02, 0.025, 0.04, 0.9]);
             hud.rect(
                 atlas,
-                white,
-                [(vw - w) / 2.0 - 12.0, 76.0, w + 24.0, 40.0],
-                panel,
+                table.white,
+                [r[0], r[1] + r[3] - 3.0 * u, r[2], 3.0 * u],
+                rgba(palette::FORGE_ORANGE),
             );
-            hud.text(atlas, (vw - w) / 2.0, 86.0, 3.0, m, orange);
+            hud.text(
+                atlas,
+                (vw - w) / 2.0,
+                86.0 * u,
+                s,
+                m,
+                rgba(palette::STEEL_WHITE),
+            );
         }
     }
 }
@@ -624,12 +1048,52 @@ impl Game {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use ferrustry_sim::scenario;
+
+    struct Env {
+        atlas: Atlas,
+        table: SpriteTable,
+        wb: SpriteBatch,
+        hud: Hud,
+    }
+
+    fn env() -> Env {
+        let reg = ContentRegistry::base().unwrap();
+        let atlas = Atlas::build(&reg);
+        let table = SpriteTable::new(&atlas, &reg);
+        Env {
+            atlas,
+            table,
+            wb: SpriteBatch::default(),
+            hud: Hud::default(),
+        }
+    }
 
     fn game() -> Game {
         let reg = ContentRegistry::base().unwrap();
         let world = scenario::demo_map(&reg, 1).unwrap();
         Game::new(reg, world, [1280.0, 720.0])
+    }
+
+    fn frame(g: &mut Game, e: &mut Env) {
+        g.frame(&e.atlas, &e.table, &mut e.wb, &mut e.hud);
+    }
+
+    fn move_to(g: &mut Game, p: [f32; 2]) {
+        g.handle(Input::CursorMoved(p));
+    }
+
+    fn center(r: Rect) -> [f32; 2] {
+        [r[0] + r[2] / 2.0, r[1] + r[3] / 2.0]
+    }
+
+    /// Клик левой кнопкой по точке экрана с кадрами до и после (как в реальном цикле).
+    fn click(g: &mut Game, e: &mut Env, p: [f32; 2]) {
+        move_to(g, p);
+        frame(g, e);
+        g.handle(Input::MouseDown(Button::Left));
+        frame(g, e);
+        g.handle(Input::MouseUp(Button::Left));
+        frame(g, e);
     }
 
     fn click_tile(g: &mut Game, t: TilePos) {
@@ -639,9 +1103,44 @@ mod tests {
         g.handle(Input::CursorMoved(p));
     }
 
+    fn playing() -> (Game, Env) {
+        let (mut g, mut e) = (game(), env());
+        frame(&mut g, &mut e);
+        // «NEW GAME» — первая кнопка главного меню
+        let ty = 720.0 * 0.16;
+        let new_game = g.menu_rects(3, ty + 170.0)[0];
+        click(&mut g, &mut e, center(new_game));
+        assert_eq!(g.screen(), Screen::Playing);
+        (g, e)
+    }
+
+    #[test]
+    fn starts_in_main_menu_and_new_game_button_works() {
+        let (g, _) = playing();
+        assert!(g.selected_block().is_none());
+    }
+
+    #[test]
+    fn clicking_hotbar_selects_building_without_building_under_it() {
+        let (mut g, mut e) = playing();
+        let before = g.world.buildings().len();
+        let slot = center(g.hotbar_rect(2));
+        click(&mut g, &mut e, slot);
+        assert_eq!(g.selected_block(), g.reg.block_by_name("smelter"));
+        g.update(0.2);
+        assert_eq!(
+            g.world.buildings().len(),
+            before,
+            "click on the panel must not build"
+        );
+        // клик по тому же слоту снимает выбор
+        click(&mut g, &mut e, slot);
+        assert!(g.selected_block().is_none());
+    }
+
     #[test]
     fn belt_drag_makes_l_shape_with_flow_directions() {
-        let mut g = game();
+        let (mut g, _) = playing();
         g.handle(Input::Key(Key::Digit(1), true));
         let cmds = g.build_commands(TilePos::new(0, 0), TilePos::new(3, -2));
         let placed: Vec<(TilePos, Dir)> = cmds
@@ -666,18 +1165,18 @@ mod tests {
 
     #[test]
     fn mouse_build_and_remove_reach_the_world() {
-        let mut g = game();
+        let (mut g, mut e) = playing();
         let before = g.world.buildings().len();
         g.handle(Input::Key(Key::Digit(1), true));
-        let a = TilePos::new(20, 20);
-        let b = TilePos::new(29, 20);
+        let a = TilePos::new(80, 50);
+        let b = TilePos::new(89, 50);
         click_tile(&mut g, a);
+        frame(&mut g, &mut e);
         g.handle(Input::MouseDown(Button::Left));
         click_tile(&mut g, b);
         g.handle(Input::MouseUp(Button::Left));
         g.update(1.0 / 30.0 + 1e-6);
         assert_eq!(g.world.buildings().len(), before + 10);
-        // правый клик с инструментом снимает инструмент, второй — начинает снос
         g.handle(Input::MouseDown(Button::Right));
         assert!(g.selected_block().is_none());
         g.handle(Input::MouseUp(Button::Right));
@@ -690,21 +1189,49 @@ mod tests {
     }
 
     #[test]
+    fn click_on_map_without_tool_explains_what_to_do() {
+        let (mut g, mut e) = playing();
+        g.message = None;
+        click_tile(&mut g, TilePos::new(60, 40));
+        frame(&mut g, &mut e);
+        g.handle(Input::MouseDown(Button::Left));
+        assert!(
+            g.message
+                .as_ref()
+                .is_some_and(|(m, _)| m.contains("CHOOSE A BUILDING"))
+        );
+    }
+
+    #[test]
+    fn escape_opens_pause_menu_which_stops_simulation() {
+        let (mut g, mut e) = playing();
+        g.handle(Input::Key(Key::Cancel, true));
+        assert_eq!(g.screen(), Screen::PauseMenu);
+        let t = g.world.tick_count();
+        g.update(1.0);
+        assert_eq!(g.world.tick_count(), t);
+        frame(&mut g, &mut e);
+        let resume = g.menu_rects(5, 720.0 * 0.28)[0];
+        click(&mut g, &mut e, center(resume));
+        assert_eq!(g.screen(), Screen::Playing);
+    }
+
+    #[test]
     fn fixed_step_runs_30_ticks_per_second_and_pauses() {
-        let mut g = game();
+        let (mut g, _) = playing();
+        let t0 = g.world.tick_count();
         for _ in 0..60 {
             g.update(1.0 / 60.0);
         }
         assert!(
-            (29..=31).contains(&g.world.tick_count()),
+            (29..=31).contains(&(g.world.tick_count() - t0)),
             "{}",
-            g.world.tick_count()
+            g.world.tick_count() - t0
         );
         g.handle(Input::Key(Key::Pause, true));
         let t = g.world.tick_count();
         g.update(1.0);
         assert_eq!(g.world.tick_count(), t);
-        // большой рывок времени не вызывает больше 8 тиков
         g.handle(Input::Key(Key::Pause, true));
         g.update(10.0);
         assert!(g.world.tick_count() - t <= 8);
@@ -712,16 +1239,22 @@ mod tests {
 
     #[test]
     fn frame_contains_ghosts_and_hud() {
-        let mut g = game();
-        let reg = ContentRegistry::base().unwrap();
-        let atlas = Atlas::build(&reg);
-        let table = SpriteTable::new(&atlas, &reg);
-        let (mut wb, mut hud) = (SpriteBatch::default(), Hud::default());
-        g.frame(&atlas, &table, &mut wb, &mut hud);
-        let base = wb.len();
+        let (mut g, mut e) = playing();
+        move_to(&mut g, [300.0, 300.0]);
+        frame(&mut g, &mut e);
+        let base = e.wb.len();
         g.handle(Input::Key(Key::Digit(3), true));
-        g.frame(&atlas, &table, &mut wb, &mut hud);
-        assert_eq!(wb.len(), base + 1, "one ghost for the smelter");
-        assert!(hud.batch.len() > 50);
+        frame(&mut g, &mut e);
+        assert_eq!(e.wb.len(), base + 1, "one ghost for the smelter");
+        assert!(e.hud.batch.len() > 50);
+    }
+
+    #[test]
+    fn hidpi_scale_enlarges_ui() {
+        let mut g = game();
+        let r1 = g.hotbar_rect(0);
+        g.handle(Input::Scale(1.5));
+        let r2 = g.hotbar_rect(0);
+        assert!(r2[2] > r1[2] * 1.4);
     }
 }

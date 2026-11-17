@@ -4,12 +4,13 @@
 //! ferrustry                          окно, демо-карта
 //! ferrustry --load FILE              окно, загрузить сохранение
 //! ferrustry --screenshot FILE.png    отрисовать кадр без окна (CI, отчёты)
-//!           [--size 1280x720] [--ticks N] [--zoom PX] [--center X,Y]
+//!           [--size 1280x720] [--ticks N] [--zoom PX] [--center X,Y] [--menu]
 //! ferrustry --frames N               закрыться после N кадров (дымовой тест окна)
 //! ```
 
 mod app;
 mod game;
+mod ui;
 
 use std::process::ExitCode;
 
@@ -31,6 +32,7 @@ struct Opts {
     load: Option<String>,
     frames: Option<u64>,
     seed: u64,
+    menu: bool,
 }
 
 fn parse() -> Result<Opts, String> {
@@ -43,6 +45,7 @@ fn parse() -> Result<Opts, String> {
         load: None,
         frames: None,
         seed: 1,
+        menu: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -70,6 +73,7 @@ fn parse() -> Result<Opts, String> {
             "--load" => o.load = Some(val()?),
             "--frames" => o.frames = Some(val()?.parse().map_err(|_| "bad --frames")?),
             "--seed" => o.seed = val()?.parse().map_err(|_| "bad --seed")?,
+            "--menu" => o.menu = true,
             "-h" | "--help" => {
                 println!(
                     "see `ferrustry` docs: --screenshot FILE --size WxH --ticks N --zoom PX --center X,Y --load FILE --frames N --seed S"
@@ -110,6 +114,9 @@ fn run() -> Result<(), String> {
         None => scenario::demo_map(&reg, o.seed).map_err(|e| e.to_string())?,
     };
     let mut game = Game::new(reg, world, [o.size[0] as f32, o.size[1] as f32]);
+    if o.load.is_some() || (o.screenshot.is_some() && !o.menu) {
+        game.start_playing();
+    }
     if let Some(z) = o.zoom {
         game.camera.zoom = z;
     }
@@ -126,6 +133,8 @@ fn run() -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| e.to_string())?;
     let mut app = app::App::new(game, o.frames);
     event_loop.run_app(&mut app).map_err(|e| e.to_string())?;
+    let (tick, buildings) = app.stats();
+    eprintln!("ferrustry: exit at tick {tick}, buildings {buildings}");
     match app.error {
         Some(e) => Err(e),
         None => Ok(()),
