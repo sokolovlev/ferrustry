@@ -4,6 +4,8 @@
 //! именами и разрешаются при построении [`ContentRegistry`]; системы симуляции работают только
 //! с числовыми ID.
 
+mod reference;
+
 use std::collections::HashMap;
 
 use serde::Deserialize;

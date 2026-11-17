@@ -1,0 +1,113 @@
+# Формат контента (`base.ron`)
+
+Весь игровой контент — предметы, руды, постройки, враги — описан данными в
+`crates/ferrustry-content/data/base.ron` (формат RON, решение D-06). Код симуляции знает только
+**виды поведения** (`kind`); конкретные постройки — это их параметры. Новая постройка с существующим
+поведением — это правка одного файла, без изменения кода.
+
+Файл встраивается в бинарник при сборке (`ContentRegistry::base()`), поэтому после правки нужна
+пересборка. После изменения чисел обновите справочник:
+
+```bash
+FERRUSTRY_BLESS=1 cargo test -p ferrustry-content reference   # перегенерировать docs/content-reference.md
+scripts/check.sh                                                # все проверки
+```
+
+## Общие правила
+
+- Ссылки между определениями — по **именам** (`ammo: "iron_ingot"`); числовые ID назначаются при
+  загрузке в порядке следования в файле. Сохранения хранят таблицу имён, схемы — имена построек.
+- Имена уникальны внутри своего раздела. Повтор — ошибка `duplicate block `...``.
+- Неизвестные поля запрещены (опечатка в имени поля — ошибка загрузки, а не молча проигнорированное поле).
+- Все числа — целые. Время — в **тиках** (30 тиков = 1 с), расстояния движения — в 1/256 тайла,
+  радиусы построек — в тайлах.
+- Параметры, помеченные «> 0», проверяются: ноль — ошибка с путём к полю, например
+  `blocks[5] `smelter`.craft_ticks: must be greater than zero`.
+
+## Разделы файла
+
+```ron
+(
+    floors: [ (name: "basalt", buildable: true), ... ],
+    items:  [ (name: "iron_ore"), ... ],
+    fluids: [ (name: "water") ],                 // необязательный
+    units:  [ (name: "crawler", ...), ... ],     // необязательный
+    ores:   [ (name: "iron_vein", item: "iron_ore"), ... ],
+    blocks: [ (name: "conveyor", size: 1, cost: [("iron_ingot", 1)], kind: Conveyor(speed: 16)), ... ],
+)
+```
+
+| Раздел | Поля |
+|---|---|
+| `floors` | `name`; `buildable` — можно ли строить и ходить врагам |
+| `items` | `name` |
+| `fluids` | `name` |
+| `ores` | `name`; `item` — что добывает бур |
+| `units` | см. [Враги](#враги) |
+| `blocks` | `name`; `size` 1..=8 (сторона в тайлах); `cost` — список `("предмет", количество > 0)`, по умолчанию бесплатно; `health` — 0 или не указано = 60 × size²; `kind` — поведение |
+
+## Виды построек (`kind`)
+
+| Вид | Параметры | Ограничения |
+|---|---|---|
+| `Conveyor` | `speed` — единиц пути за тик (тайл = 256, шаг предметов = 64) | size 1; speed > 0 |
+| `Splitter` | — | size 1 |
+| `Sorter` | — (фильтр задаётся игроком) | size 1 |
+| `Bridge` | `range` тайлов, `interval` тиков на предмет, `buffer` | size 1; все > 0 |
+| `Depot` | `capacity` — всего предметов | capacity > 0; size ≤ 8 |
+| `Drill` | `base_ticks` — тиков на предмет при руде под всеми тайлами; `buffer` | > 0 |
+| `Crafter` | `inputs`, `outputs` — списки `("предмет", n)`; `craft_ticks`; `power_use` за тик (0 — без энергии); `buffer`; тепло: `heat` за тик работы (по умолчанию 0), `cooling` пассивное (0), `heat_capacity` (100) | outputs не пуст; buffer ≥ любого n в рецепте |
+| `Core` | `capacity` — каждого предмета | > 0 |
+| `Generator` | `power` за тик; необязательно: `fuel: Some("предмет")`, `burn_ticks`, `buffer` | power > 0; с топливом burn_ticks и buffer > 0 |
+| `PowerNode` | `range` тайлов | > 0 |
+| `Battery` | `capacity` энергии | > 0 |
+| `HeatEngine` | `max_heat` за тик, `power_per_heat_permille` (500 = 50%), `heat_capacity` | max_heat, heat_capacity > 0 |
+| `Pipe` | `capacity` — объём | > 0 |
+| `Condenser` | `fluid`, `rate` за тик, `power_use`, `capacity` | rate, capacity > 0 |
+| `CoolingTower` | `fluid`, `rate` за тик, `cooling` тепла за единицу жидкости, `heat_capacity` | rate, heat_capacity > 0 |
+| `HeatPipe` | `heat_capacity` | > 0 |
+| `Radiator` | `dissipation` за тик, `heat_capacity` | heat_capacity > 0 |
+| `Turret` | `range` тайлов, `damage`, `reload` тиков, `ammo` предмет, `shots_per_item`, `projectile_speed` (1/256 тайла за тик), `buffer` предметов | все, кроме damage, > 0 |
+| `ArcTurret` | `range`, `damage`, `reload` (при полном питании), `power_use` за тик перезарядки | все > 0 |
+| `Wall` | — | — |
+
+Пример — новая постройка без изменения кода:
+
+```ron
+(
+    name: "steel_wall",
+    cost: [("steel", 6)],
+    size: 1,
+    health: 1200,
+    kind: Wall,
+),
+```
+
+## Враги
+
+```ron
+(name: "spitter", health: 50, speed: 14, damage: 8, cooldown: 45, radius: 80, range: 4, projectile_speed: 40),
+```
+
+| Поле | Смысл | Ограничения |
+|---|---|---|
+| `health` | Прочность | > 0 |
+| `speed` | 1/256 тайла за тик | > 0 |
+| `damage` | Урон за удар или снаряд | — |
+| `cooldown` | Тиков между атаками | > 0 |
+| `radius` | Размер (1/256 тайла): расталкивание и попадания | > 0 |
+| `armor` | Вычитается из урона снарядов, урон не ниже трети. По умолчанию 0 | — |
+| `range` | Тайлов; 0 (по умолчанию) — ближний бой | — |
+| `projectile_speed` | Скорость снаряда дальнобойного врага | > 0, если range > 0 |
+
+Состав волн пока задаётся кодом (`World::wave_composition`), а не данными: враг с новым именем
+появится в игре, только если добавить его туда. Перенос волн в данные — в backlog этапа 5.
+
+## Что требует кода
+
+Новый **вид** поведения (новый вариант `kind`) — это изменение `ferrustry-content` (схема и валидация)
+и `ferrustry-sim` (таблица состояния, система тика, приём предметов, снос, `validate`, `inspect`),
+а также рендера (спрайт в `atlas.rs`) и клиента (вкладка в `CATEGORIES`, подсказка, инспектор).
+Компилятор подсказывает почти все места: сопоставления по `BlockKind` и `KindTag` исчерпывающие.
+Постройка без своего рисунка в `atlas.rs` получает заглушку — рамку с диагональным крестом;
+враг — силуэт ползуна.
