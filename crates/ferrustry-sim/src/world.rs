@@ -127,6 +127,8 @@ pub(crate) struct CrafterRow {
     pub(crate) outputs: Vec<u32>,
     /// Прогресс в тысячных долях тика при полной энергии.
     pub(crate) progress: u64,
+    /// Дробная часть выделенного тепла, тысячные (без потерь при замедлении).
+    pub(crate) heat_acc: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +182,13 @@ pub struct World {
     pub(crate) routers: Table<RouterRow>,
     pub(crate) bridges: Table<BridgeRow>,
     pub(crate) batteries: Table<BatteryRow>,
+    /// Трубы, тепловые трубы, радиаторы, градирни (состояние — в сетях).
+    pub(crate) passive: Table<()>,
+    pub(crate) condensers: Table<crate::thermal::CondenserRow>,
+    pub(crate) engines: Table<crate::thermal::EngineRow>,
+    pub(crate) fluids: crate::thermal::Nets<crate::thermal::FluidNet>,
+    pub(crate) heat: crate::thermal::Nets<crate::thermal::HeatNet>,
+    pub(crate) fluid_stats: crate::thermal::FluidStats,
     rules: Rules,
     pub(crate) segments: Vec<Option<Segment>>,
     free_segments: Vec<u32>,
@@ -269,6 +278,12 @@ impl World {
             routers: Table::default(),
             bridges: Table::default(),
             batteries: Table::default(),
+            passive: Table::default(),
+            condensers: Table::default(),
+            engines: Table::default(),
+            fluids: Default::default(),
+            heat: Default::default(),
+            fluid_stats: Default::default(),
             rules: Rules::default(),
             segments: Vec::new(),
             free_segments: Vec::new(),
@@ -463,10 +478,14 @@ impl World {
         if self.power.dirty {
             self.rebuild_power(reg);
         }
+        self.rebuild_thermal(reg);
         self.balance_power(reg);
+        self.update_condensers(reg);
         self.fire_timers();
         self.update_drills(reg);
+        self.begin_heat_tick();
         self.update_crafters(reg);
+        self.update_heat(reg);
         self.update_routers(reg);
         self.update_bridges(reg);
         self.update_conveyors(reg);
@@ -576,6 +595,12 @@ impl World {
             BlockKind::Sorter => KindTag::Sorter,
             BlockKind::Bridge { .. } => KindTag::Bridge,
             BlockKind::Battery { .. } => KindTag::Battery,
+            BlockKind::Pipe { .. } => KindTag::Pipe,
+            BlockKind::Condenser { .. } => KindTag::Condenser,
+            BlockKind::CoolingTower { .. } => KindTag::CoolingTower,
+            BlockKind::HeatPipe { .. } => KindTag::HeatPipe,
+            BlockKind::Radiator { .. } => KindTag::Radiator,
+            BlockKind::HeatEngine { .. } => KindTag::HeatEngine,
         };
         self.topo_epoch += 1;
         let id = self.buildings.insert(Building {
@@ -586,6 +611,8 @@ impl World {
             tag,
             row: 0,
             power_net: None,
+            heat_net: None,
+            fluid_net: None,
             dump_cursor: 0,
             dump_epoch: 0,
             dump_links: Vec::new(),
@@ -625,6 +652,7 @@ impl World {
                     inputs: vec![0; inputs.len()],
                     outputs: vec![0; outputs.len()],
                     progress: 0,
+                    heat_acc: 0,
                 },
             ),
             BlockKind::Generator { .. } => self.generators.push(id, ()),
@@ -654,7 +682,14 @@ impl World {
                 },
             ),
             BlockKind::Battery { .. } => self.batteries.push(id, BatteryRow { stored: 0 }),
+            BlockKind::Pipe { .. }
+            | BlockKind::CoolingTower { .. }
+            | BlockKind::HeatPipe { .. }
+            | BlockKind::Radiator { .. } => self.passive.push(id, ()),
+            BlockKind::Condenser { .. } => self.condensers.push(id, Default::default()),
+            BlockKind::HeatEngine { .. } => self.engines.push(id, Default::default()),
         };
+        self.mark_thermal_dirty(reg, block);
         if let Some(b) = self.buildings.get_mut(id) {
             b.row = row;
         }
@@ -745,6 +780,7 @@ impl World {
         if def.is_power() {
             self.power.dirty = true;
         }
+        self.mark_thermal_dirty(reg, b.block);
         let mut old_segment = None;
         let moved = match b.tag {
             KindTag::Conveyor => self.conveyors.swap_remove(b.row).map(|(row, m)| {
@@ -787,6 +823,11 @@ impl World {
                 m
             }),
             KindTag::Battery => self.batteries.swap_remove(b.row).map(|(_, m)| m),
+            KindTag::Pipe | KindTag::CoolingTower | KindTag::HeatPipe | KindTag::Radiator => {
+                self.passive.swap_remove(b.row).map(|(_, m)| m)
+            }
+            KindTag::Condenser => self.condensers.swap_remove(b.row).map(|(_, m)| m),
+            KindTag::HeatEngine => self.engines.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Generator => self.generators.swap_remove(b.row).map(|(_, m)| m),
             KindTag::PowerNode => self.nodes.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Core => self.cores.swap_remove(b.row).map(|(row, m)| {
@@ -1056,9 +1097,16 @@ impl World {
                 }
                 Link::Directed { id, side }
             }
-            KindTag::Drill | KindTag::Generator | KindTag::PowerNode | KindTag::Battery => {
-                Link::Refuses
-            }
+            KindTag::Drill
+            | KindTag::Generator
+            | KindTag::PowerNode
+            | KindTag::Battery
+            | KindTag::Pipe
+            | KindTag::Condenser
+            | KindTag::CoolingTower
+            | KindTag::HeatPipe
+            | KindTag::Radiator
+            | KindTag::HeatEngine => Link::Refuses,
         }
     }
 
@@ -1304,11 +1352,13 @@ impl World {
             };
             let block = b.block;
             let net = b.power_net;
+            let heat_net = b.heat_net;
             let BlockKind::Crafter {
                 inputs,
                 outputs,
                 craft_ticks,
                 power_use,
+                heat,
                 ..
             } = &reg.block(block).kind
             else {
@@ -1316,15 +1366,26 @@ impl World {
             };
 
             if Self::crafter_ready(reg, block, &self.crafters.rows[r]) {
-                let sat = if *power_use == 0 {
+                let power_sat = if *power_use == 0 {
                     1000
                 } else {
                     net.and_then(|n| self.power.nets.get(n as usize))
                         .map_or(0, |n| n.satisfaction)
                 };
+                // перегрев замедляет работу (тепловая сеть, D-02)
+                let sat = if *heat > 0 {
+                    power_sat * crate::thermal::heat_factor(self.temperature_of(heat_net)) / 1000
+                } else {
+                    power_sat
+                };
                 let row = &mut self.crafters.rows[r];
+                row.heat_acc += *heat * sat;
+                let heat_units = u64::from(row.heat_acc / 1000);
+                row.heat_acc %= 1000;
                 row.progress += u64::from(sat);
                 let need = u64::from(*craft_ticks) * 1000;
+                self.add_heat(heat_net, heat_units);
+                let row = &mut self.crafters.rows[r];
                 if row.progress >= need {
                     row.progress -= need;
                     for (s, n) in inputs.iter().zip(row.inputs.iter_mut()) {
@@ -1626,6 +1687,33 @@ impl World {
         }
     }
 
+    /// Кладёт ресурс во вход производства на тайле (только тесты и бенчмарки; учитывается в
+    /// `stats.spawned`). Возвращает, сколько поместилось.
+    pub fn debug_fill_crafter(
+        &mut self,
+        reg: &ContentRegistry,
+        at: TilePos,
+        item: ItemId,
+        n: u32,
+    ) -> u32 {
+        let Some(b) = self.grid.building(at).and_then(|id| self.buildings.get(id)) else {
+            return 0;
+        };
+        let BlockKind::Crafter { inputs, buffer, .. } = &reg.block(b.block).kind else {
+            return 0;
+        };
+        let Some(slot) = inputs.iter().position(|s| s.item == item) else {
+            return 0;
+        };
+        let Some(row) = self.crafters.rows.get_mut(b.row as usize) else {
+            return 0;
+        };
+        let put = n.min(buffer.saturating_sub(row.inputs[slot]));
+        row.inputs[slot] += put;
+        Stats::bump(&mut self.stats.spawned, item, u64::from(put));
+        put
+    }
+
     /// Проверка структурной целостности мира (после загрузки файла или в тестах).
     pub fn validate(&self, reg: &ContentRegistry) -> Result<(), String> {
         self.grid.validate()?;
@@ -1673,6 +1761,16 @@ impl World {
                     self.batteries.len(),
                     self.batteries.owners.get(b.row as usize),
                 ),
+                KindTag::Pipe | KindTag::CoolingTower | KindTag::HeatPipe | KindTag::Radiator => {
+                    (self.passive.len(), self.passive.owners.get(b.row as usize))
+                }
+                KindTag::Condenser => (
+                    self.condensers.len(),
+                    self.condensers.owners.get(b.row as usize),
+                ),
+                KindTag::HeatEngine => {
+                    (self.engines.len(), self.engines.owners.get(b.row as usize))
+                }
             };
             if (b.row as usize) >= len || owner != Some(&id) {
                 return Err("building table row mismatch".into());
@@ -1828,6 +1926,13 @@ pub enum Detail {
         /// Найден ли партнёр (иначе это выход моста).
         linked: bool,
     },
+    /// Труба, конденсатор, градирня, тепловая труба, радиатор (состояние — в сетях).
+    Network,
+    /// Тепловая машина.
+    HeatEngine {
+        /// Выработка энергии за тик.
+        output: u32,
+    },
 }
 
 /// Результат осмотра постройки.
@@ -1841,6 +1946,10 @@ pub struct Inspection {
     pub rot: Dir,
     /// Энергосеть постройки.
     pub power: Option<crate::power::PowerNet>,
+    /// Тепловая сеть.
+    pub heat: Option<crate::thermal::HeatNet>,
+    /// Жидкостная сеть.
+    pub fluid: Option<crate::thermal::FluidNet>,
     /// Состояние по виду поведения.
     pub detail: Detail,
 }
@@ -1923,12 +2032,31 @@ impl World {
                     linked: r.partner.is_some() && r.partner_epoch == self.topo_epoch,
                 }
             }
+            (
+                _,
+                KindTag::Pipe
+                | KindTag::Condenser
+                | KindTag::CoolingTower
+                | KindTag::HeatPipe
+                | KindTag::Radiator,
+            ) => Detail::Network,
+            (_, KindTag::HeatEngine) => Detail::HeatEngine {
+                output: self.engines.rows.get(row)?.output,
+            },
             _ => return None,
         };
         Some(Inspection {
             block: b.block,
             origin: b.origin,
             rot: b.rot,
+            heat: b
+                .heat_net
+                .and_then(|n| self.heat.nets.get(n as usize))
+                .cloned(),
+            fluid: b
+                .fluid_net
+                .and_then(|n| self.fluids.nets.get(n as usize))
+                .cloned(),
             power: b
                 .power_net
                 .and_then(|n| self.power.nets.get(n as usize))

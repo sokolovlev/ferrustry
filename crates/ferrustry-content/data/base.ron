@@ -12,6 +12,9 @@
         (name: "iron_ingot"),
         (name: "steel"),
     ],
+    fluids: [
+        (name: "water"),
+    ],
     ores: [
         (name: "iron_vein", item: "iron_ore"),
         (name: "carbon_seam", item: "carbon"),
@@ -53,6 +56,10 @@
                 craft_ticks: 60,
                 power_use: 10,
                 buffer: 10,
+                // кузница греется: без охлаждения через ~40 тиков работы начинает замедляться
+                heat: 6,
+                cooling: 1,
+                heat_capacity: 300,
             ),
         ),
         (
@@ -92,6 +99,45 @@
             cost: [("iron_ingot", 15), ("carbon", 2)],
             size: 1,
             kind: Battery(capacity: 2000),
+        ),
+        (
+            name: "pipe",
+            cost: [("iron_ingot", 1)],
+            size: 1,
+            kind: Pipe(capacity: 20),
+        ),
+        (
+            name: "condenser",
+            cost: [("iron_ingot", 30)],
+            size: 2,
+            // вода из воздуха: 2 ед./тик при 3 энергии/тик
+            kind: Condenser(fluid: "water", rate: 2, power_use: 3, capacity: 40),
+        ),
+        (
+            name: "cooling_tower",
+            cost: [("iron_ingot", 30)],
+            size: 2,
+            // 1 ед. воды/тик снимает 8 тепла
+            kind: CoolingTower(fluid: "water", rate: 1, cooling: 8, heat_capacity: 100),
+        ),
+        (
+            name: "heat_pipe",
+            cost: [("iron_ingot", 2)],
+            size: 1,
+            kind: HeatPipe(heat_capacity: 50),
+        ),
+        (
+            name: "radiator",
+            cost: [("iron_ingot", 6)],
+            size: 1,
+            kind: Radiator(dissipation: 2, heat_capacity: 50),
+        ),
+        (
+            name: "heat_engine",
+            cost: [("iron_ingot", 40), ("steel", 10)],
+            size: 2,
+            // до 8 тепла/тик → 4 энергии/тик (КПД 50%)
+            kind: HeatEngine(max_heat: 8, power_per_heat_permille: 500, heat_capacity: 200),
         ),
         (
             name: "core",

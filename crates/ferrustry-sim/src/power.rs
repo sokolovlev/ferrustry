@@ -155,6 +155,36 @@ impl World {
                 net.production += u64::from(*power);
             }
         }
+        // тепловые машины: выработка, рассчитанная в прошлом тике
+        for (row, owner) in self.engines.rows.iter().zip(&self.engines.owners) {
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            if let Some(net) = b
+                .power_net
+                .and_then(|n| self.power.nets.get_mut(n as usize))
+            {
+                net.production += u64::from(row.output);
+            }
+        }
+        // конденсаторы: спрос, если в их жидкостной сети есть место
+        for owner in &self.condensers.owners {
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            let BlockKind::Condenser { power_use, .. } = reg.block(b.block).kind else {
+                continue;
+            };
+            if power_use == 0 || !self.condenser_wants(reg, *owner) {
+                continue;
+            }
+            if let Some(net) = b
+                .power_net
+                .and_then(|n| self.power.nets.get_mut(n as usize))
+            {
+                net.demand += u64::from(power_use);
+            }
+        }
         for (row, owner) in self.crafters.rows.iter().zip(&self.crafters.owners) {
             let Some(b) = self.buildings.get(*owner) else {
                 continue;

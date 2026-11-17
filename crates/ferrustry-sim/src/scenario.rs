@@ -328,6 +328,13 @@ impl RandomBuilder {
             "bridge_conveyor",
             "battery",
             "power_node",
+            "pipe",
+            "condenser",
+            "cooling_tower",
+            "heat_pipe",
+            "radiator",
+            "heat_engine",
+            "steel_forge",
         ] {
             if let Some(b) = reg.block_by_name(extra) {
                 blocks.push(b);

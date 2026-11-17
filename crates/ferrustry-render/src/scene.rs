@@ -142,7 +142,16 @@ pub fn build_world(
         } else {
             0.0
         };
-        batch.push(table.block(b.block), c, [s, s], rot, WHITE);
+        // перегрев (выше порога замедления) окрашивает постройку в красный
+        let tint = match world.building_temperature(b) {
+            Some(t) if t > ferrustry_sim::thermal::THROTTLE_FROM => {
+                let k = (t - ferrustry_sim::thermal::THROTTLE_FROM) as f32
+                    / (1000 - ferrustry_sim::thermal::THROTTLE_FROM) as f32;
+                [1.0, 1.0 - 0.65 * k, 1.0 - 0.75 * k, 1.0]
+            }
+            _ => WHITE,
+        };
+        batch.push(table.block(b.block), c, [s, s], rot, tint);
         if b.tag == ferrustry_sim::KindTag::Sorter
             && let Some(ins) = world.inspect(reg, b.origin)
             && let ferrustry_sim::Detail::Sorter {

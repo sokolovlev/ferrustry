@@ -35,6 +35,18 @@ pub enum KindTag {
     Bridge,
     /// Батарея.
     Battery,
+    /// Труба.
+    Pipe,
+    /// Конденсатор.
+    Condenser,
+    /// Градирня.
+    CoolingTower,
+    /// Тепловая труба.
+    HeatPipe,
+    /// Радиатор.
+    Radiator,
+    /// Тепловая машина.
+    HeatEngine,
 }
 
 /// Общие данные постройки.
@@ -54,6 +66,10 @@ pub struct Building {
     pub(crate) row: u32,
     /// Энергосеть, к которой подключена постройка.
     pub(crate) power_net: Option<u32>,
+    /// Тепловая сеть.
+    pub(crate) heat_net: Option<u32>,
+    /// Жидкостная сеть.
+    pub(crate) fluid_net: Option<u32>,
     /// Курсор round-robin выгрузки по списку получателей.
     pub(crate) dump_cursor: u32,
     /// Эпоха топологии, для которой построен `dump_links`.

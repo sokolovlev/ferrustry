@@ -29,6 +29,12 @@ pub struct ItemId(pub u16);
 )]
 pub struct OreId(pub u16);
 
+/// ID жидкости.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, Deserialize,
+)]
+pub struct FluidId(pub u16);
+
 /// ID типа постройки.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, Deserialize,
@@ -81,6 +87,8 @@ pub enum ContentError {
 struct RawContent {
     floors: Vec<RawFloor>,
     items: Vec<RawItem>,
+    #[serde(default)]
+    fluids: Vec<RawItem>,
     ores: Vec<RawOre>,
     blocks: Vec<RawBlock>,
 }
@@ -130,6 +138,39 @@ enum RawKind {
         craft_ticks: u32,
         power_use: u32,
         buffer: u32,
+        #[serde(default)]
+        heat: u32,
+        #[serde(default)]
+        cooling: u32,
+        #[serde(default = "default_heat_capacity")]
+        heat_capacity: u32,
+    },
+    Pipe {
+        capacity: u32,
+    },
+    Condenser {
+        fluid: String,
+        rate: u32,
+        power_use: u32,
+        capacity: u32,
+    },
+    CoolingTower {
+        fluid: String,
+        rate: u32,
+        cooling: u32,
+        heat_capacity: u32,
+    },
+    HeatPipe {
+        heat_capacity: u32,
+    },
+    Radiator {
+        dissipation: u32,
+        heat_capacity: u32,
+    },
+    HeatEngine {
+        max_heat: u32,
+        power_per_heat_permille: u32,
+        heat_capacity: u32,
     },
     Generator {
         power: u32,
@@ -152,6 +193,10 @@ enum RawKind {
     },
 }
 
+fn default_heat_capacity() -> u32 {
+    100
+}
+
 // ---------------------------------------------------------------------------
 // Разрешённый контент
 // ---------------------------------------------------------------------------
@@ -168,6 +213,13 @@ pub struct FloorDef {
 /// Ресурс.
 #[derive(Debug, Clone)]
 pub struct ItemDef {
+    /// Уникальное имя.
+    pub name: String,
+}
+
+/// Жидкость.
+#[derive(Debug, Clone)]
+pub struct FluidDef {
     /// Уникальное имя.
     pub name: String,
 }
@@ -217,6 +269,60 @@ pub enum BlockKind {
         power_use: u32,
         /// Ёмкость буфера каждого ресурса.
         buffer: u32,
+        /// Тепло за тик работы (0 — не греется).
+        heat: u32,
+        /// Пассивное охлаждение за тик.
+        cooling: u32,
+        /// Теплоёмкость (вклад в тепловую сеть).
+        heat_capacity: u32,
+    },
+    /// Труба: соединяет жидкостные постройки в сеть.
+    Pipe {
+        /// Объём.
+        capacity: u32,
+    },
+    /// Конденсатор: производит жидкость из воздуха, потребляя энергию.
+    Condenser {
+        /// Производимая жидкость.
+        fluid: FluidId,
+        /// Единиц за тик при полной энергии.
+        rate: u32,
+        /// Потребление энергии за тик.
+        power_use: u32,
+        /// Собственный объём (вклад в сеть).
+        capacity: u32,
+    },
+    /// Градирня: тратит жидкость, снимая тепло с тепловой сети.
+    CoolingTower {
+        /// Потребляемая жидкость.
+        fluid: FluidId,
+        /// Единиц за тик.
+        rate: u32,
+        /// Тепла снимается на единицу жидкости.
+        cooling: u32,
+        /// Теплоёмкость.
+        heat_capacity: u32,
+    },
+    /// Тепловая труба: соединяет тепловые постройки.
+    HeatPipe {
+        /// Теплоёмкость.
+        heat_capacity: u32,
+    },
+    /// Радиатор: пассивно рассеивает тепло.
+    Radiator {
+        /// Рассеивание за тик.
+        dissipation: u32,
+        /// Теплоёмкость.
+        heat_capacity: u32,
+    },
+    /// Тепловая машина: превращает тепло сети в энергию.
+    HeatEngine {
+        /// Максимум тепла за тик.
+        max_heat: u32,
+        /// Энергии на единицу тепла, тысячные.
+        power_per_heat_permille: u32,
+        /// Теплоёмкость.
+        heat_capacity: u32,
     },
     /// Генератор с постоянной выработкой.
     Generator {
@@ -272,9 +378,37 @@ impl BlockDef {
         match &self.kind {
             BlockKind::Generator { .. }
             | BlockKind::PowerNode { .. }
-            | BlockKind::Battery { .. } => true,
-            BlockKind::Crafter { power_use, .. } => *power_use > 0,
+            | BlockKind::Battery { .. }
+            | BlockKind::HeatEngine { .. } => true,
+            BlockKind::Crafter { power_use, .. } | BlockKind::Condenser { power_use, .. } => {
+                *power_use > 0
+            }
             _ => false,
+        }
+    }
+
+    /// Объём в жидкостной сети (`None` — не участвует).
+    pub fn fluid_capacity(&self) -> Option<u32> {
+        match &self.kind {
+            BlockKind::Pipe { capacity } | BlockKind::Condenser { capacity, .. } => Some(*capacity),
+            BlockKind::CoolingTower { rate, .. } => Some(*rate * 4),
+            _ => None,
+        }
+    }
+
+    /// Теплоёмкость в тепловой сети (`None` — не участвует).
+    pub fn heat_capacity(&self) -> Option<u32> {
+        match &self.kind {
+            BlockKind::Crafter {
+                heat,
+                heat_capacity,
+                ..
+            } if *heat > 0 => Some(*heat_capacity),
+            BlockKind::CoolingTower { heat_capacity, .. }
+            | BlockKind::HeatPipe { heat_capacity }
+            | BlockKind::Radiator { heat_capacity, .. }
+            | BlockKind::HeatEngine { heat_capacity, .. } => Some(*heat_capacity),
+            _ => None,
         }
     }
 }
@@ -286,6 +420,8 @@ pub struct ContentRegistry {
     items: Vec<ItemDef>,
     ores: Vec<OreDef>,
     blocks: Vec<BlockDef>,
+    fluids: Vec<FluidDef>,
+    fluid_names: HashMap<String, FluidId>,
     floor_names: HashMap<String, FloorId>,
     item_names: HashMap<String, ItemId>,
     ore_names: HashMap<String, OreId>,
@@ -348,6 +484,14 @@ impl ContentRegistry {
     fn from_raw(raw: RawContent) -> Result<Self, ContentError> {
         let floor_names = index_names(raw.floors.iter().map(|f| f.name.clone()), "floor", FloorId)?;
         let item_names = index_names(raw.items.iter().map(|f| f.name.clone()), "item", ItemId)?;
+        let fluid_names = index_names(raw.fluids.iter().map(|f| f.name.clone()), "fluid", FluidId)?;
+        let fluids: Vec<FluidDef> = raw
+            .fluids
+            .iter()
+            .map(|f| FluidDef {
+                name: f.name.clone(),
+            })
+            .collect();
         let ore_names = index_names(raw.ores.iter().map(|f| f.name.clone()), "ore", OreId)?;
         let block_names = index_names(raw.blocks.iter().map(|f| f.name.clone()), "block", BlockId)?;
 
@@ -405,7 +549,11 @@ impl ContentRegistry {
                     craft_ticks,
                     power_use,
                     buffer,
+                    heat,
+                    cooling,
+                    heat_capacity,
                 } => {
+                    positive(heat_capacity, || p("heat_capacity"))?;
                     positive(craft_ticks, || p("craft_ticks"))?;
                     let stacks = |list: Vec<(String, u32)>, field: &str| {
                         list.into_iter()
@@ -440,6 +588,9 @@ impl ContentRegistry {
                         craft_ticks,
                         power_use,
                         buffer,
+                        heat,
+                        cooling,
+                        heat_capacity,
                     }
                 }
                 RawKind::Generator { power } => {
@@ -491,6 +642,67 @@ impl ContentRegistry {
                     positive(capacity, || p("capacity"))?;
                     BlockKind::Battery { capacity }
                 }
+                RawKind::Pipe { capacity } => {
+                    positive(capacity, || p("capacity"))?;
+                    BlockKind::Pipe { capacity }
+                }
+                RawKind::Condenser {
+                    fluid,
+                    rate,
+                    power_use,
+                    capacity,
+                } => {
+                    positive(rate, || p("rate"))?;
+                    positive(capacity, || p("capacity"))?;
+                    BlockKind::Condenser {
+                        fluid: resolve(&fluid_names, &fluid, "fluid", || p("fluid"))?,
+                        rate,
+                        power_use,
+                        capacity,
+                    }
+                }
+                RawKind::CoolingTower {
+                    fluid,
+                    rate,
+                    cooling,
+                    heat_capacity,
+                } => {
+                    positive(rate, || p("rate"))?;
+                    positive(heat_capacity, || p("heat_capacity"))?;
+                    BlockKind::CoolingTower {
+                        fluid: resolve(&fluid_names, &fluid, "fluid", || p("fluid"))?,
+                        rate,
+                        cooling,
+                        heat_capacity,
+                    }
+                }
+                RawKind::HeatPipe { heat_capacity } => {
+                    positive(heat_capacity, || p("heat_capacity"))?;
+                    BlockKind::HeatPipe { heat_capacity }
+                }
+                RawKind::Radiator {
+                    dissipation,
+                    heat_capacity,
+                } => {
+                    positive(heat_capacity, || p("heat_capacity"))?;
+                    BlockKind::Radiator {
+                        dissipation,
+                        heat_capacity,
+                    }
+                }
+                RawKind::HeatEngine {
+                    max_heat,
+                    power_per_heat_permille,
+                    heat_capacity,
+                } => {
+                    positive(max_heat, || p("max_heat"))?;
+                    positive(heat_capacity, || p("heat_capacity"))?;
+                    BlockKind::HeatEngine {
+                        max_heat,
+                        power_per_heat_permille,
+                        heat_capacity,
+                    }
+                }
             };
             let mut cost = Vec::with_capacity(block.cost.len());
             for (j, (name, count)) in block.cost.iter().enumerate() {
@@ -514,6 +726,8 @@ impl ContentRegistry {
             items,
             ores,
             blocks,
+            fluids,
+            fluid_names,
             floor_names,
             item_names,
             ore_names,
@@ -572,6 +786,21 @@ impl ContentRegistry {
         self.block_names.get(name).copied()
     }
 
+    /// Все жидкости в порядке ID.
+    pub fn fluids(&self) -> &[FluidDef] {
+        &self.fluids
+    }
+
+    /// Определение жидкости. Паникует, если ID получен не из этого реестра.
+    pub fn fluid(&self, id: FluidId) -> &FluidDef {
+        &self.fluids[usize::from(id.0)]
+    }
+
+    /// Поиск жидкости по имени.
+    pub fn fluid_by_name(&self, name: &str) -> Option<FluidId> {
+        self.fluid_names.get(name).copied()
+    }
+
     /// Таблица имён контента в порядке ID — используется форматом сохранений.
     pub fn name_table(&self) -> NameTable {
         NameTable {
@@ -579,6 +808,7 @@ impl ContentRegistry {
             items: self.items.iter().map(|d| d.name.clone()).collect(),
             ores: self.ores.iter().map(|d| d.name.clone()).collect(),
             blocks: self.blocks.iter().map(|d| d.name.clone()).collect(),
+            fluids: self.fluids.iter().map(|d| d.name.clone()).collect(),
         }
     }
 }
@@ -594,6 +824,9 @@ pub struct NameTable {
     pub ores: Vec<String>,
     /// Имена построек.
     pub blocks: Vec<String>,
+    /// Имена жидкостей.
+    #[serde(default)]
+    pub fluids: Vec<String>,
 }
 
 #[cfg(test)]

@@ -14,6 +14,7 @@ pub mod power;
 pub mod rng;
 pub mod scenario;
 pub mod segment;
+pub mod thermal;
 mod world;
 
 pub use buildings::{Building, BuildingId, KindTag};

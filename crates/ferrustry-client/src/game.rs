@@ -44,6 +44,8 @@ pub enum Key {
     Slower,
     /// Справка.
     Help,
+    /// Следующая категория построек.
+    NextCategory,
     /// Панорама вверх.
     PanUp,
     /// Панорама вниз.
@@ -104,6 +106,29 @@ pub enum Request {
 
 const QUICKSAVE: &str = "ferrustry-quicksave.fsave";
 
+/// Категории панели построек (вкладки).
+const CATEGORIES: [(&str, &[&str]); 4] = [
+    (
+        "LOGISTICS",
+        &["conveyor", "splitter", "sorter", "bridge_conveyor"],
+    ),
+    ("PRODUCTION", &["bore", "smelter", "steel_forge", "core"]),
+    (
+        "POWER",
+        &["wind_turbine", "power_node", "battery", "heat_engine"],
+    ),
+    (
+        "FLUIDS+HEAT",
+        &[
+            "pipe",
+            "condenser",
+            "cooling_tower",
+            "heat_pipe",
+            "radiator",
+        ],
+    ),
+];
+
 /// Состояние клиента.
 pub struct Game {
     /// Контент.
@@ -114,8 +139,11 @@ pub struct Game {
     pub camera: Camera,
     screen: Screen,
     seed: u64,
+    /// Постройки текущей категории (слоты панели).
     hotbar: Vec<BlockId>,
-    tool: Option<usize>,
+    categories: Vec<(&'static str, Vec<BlockId>)>,
+    category: usize,
+    tool: Option<BlockId>,
     rot: Dir,
     paused: bool,
     speed: u32,
@@ -160,20 +188,20 @@ impl RateMeter {
 impl Game {
     /// Новая игра на мире `world`, открывается главное меню.
     pub fn new(reg: ContentRegistry, world: World, viewport: [f32; 2]) -> Self {
-        let order = [
-            "conveyor",
-            "splitter",
-            "sorter",
-            "bridge_conveyor",
-            "bore",
-            "smelter",
-            "steel_forge",
-            "wind_turbine",
-            "battery",
-            "power_node",
-            "core",
-        ];
-        let hotbar = order.iter().filter_map(|n| reg.block_by_name(n)).collect();
+        let categories: Vec<(&'static str, Vec<BlockId>)> = CATEGORIES
+            .iter()
+            .map(|(name, blocks)| {
+                (
+                    *name,
+                    blocks
+                        .iter()
+                        .filter_map(|n| reg.block_by_name(n))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
+        let hotbar = categories.first().map(|c| c.1.clone()).unwrap_or_default();
         let center = [
             world.grid().width() as f32 / 2.0,
             world.grid().height() as f32 / 2.0,
@@ -185,6 +213,8 @@ impl Game {
             screen: Screen::MainMenu,
             seed: 1,
             hotbar,
+            categories,
+            category: 0,
             tool: None,
             rot: Dir::Right,
             paused: false,
@@ -269,7 +299,7 @@ impl Game {
                 self.paused = false;
                 self.screen = Screen::Playing;
                 self.message = Some((
-                    "CHOOSE A BUILDING BELOW (OR 1-9, 0), THEN CLICK THE MAP".into(),
+                    "CHOOSE A BUILDING BELOW (1-5, TAB: CATEGORY), THEN CLICK THE MAP".into(),
                     8.0,
                 ));
             }
@@ -279,7 +309,7 @@ impl Game {
 
     /// Выбранная постройка.
     pub fn selected_block(&self) -> Option<BlockId> {
-        self.tool.and_then(|i| self.hotbar.get(i).copied())
+        self.tool
     }
 
     fn cursor_tile(&self) -> TilePos {
@@ -323,7 +353,7 @@ impl Game {
                         self.inspected = Some(t); // клик по постройке без инструмента — осмотр
                     } else {
                         self.inspected = None;
-                        self.notify("CHOOSE A BUILDING BELOW (OR 1-9, 0)");
+                        self.notify("CHOOSE A BUILDING BELOW (1-5, TAB: CATEGORY)");
                     }
                 }
             }
@@ -404,6 +434,10 @@ impl Game {
                 }
             }
             (Screen::Playing, Key::Pause) => self.paused = !self.paused,
+            (Screen::Playing, Key::NextCategory) => {
+                let n = self.categories.len().max(1);
+                self.set_category((self.category + 1) % n);
+            }
             (Screen::Playing, Key::Help) => self.show_help = !self.show_help,
             (Screen::Playing | Screen::PauseMenu, Key::Save) => self.requests.push(Request::Save),
             (_, Key::Load) => self.requests.push(Request::Load),
@@ -414,11 +448,26 @@ impl Game {
     }
 
     fn select(&mut self, i: usize) {
-        self.tool = if self.tool == Some(i) || i >= self.hotbar.len() {
-            None
-        } else {
-            Some(i)
-        };
+        let Some(&b) = self.hotbar.get(i) else { return };
+        self.tool = if self.tool == Some(b) { None } else { Some(b) };
+    }
+
+    fn set_category(&mut self, k: usize) {
+        if let Some((_, blocks)) = self.categories.get(k) {
+            self.category = k;
+            self.hotbar = blocks.clone();
+        }
+    }
+
+    /// Прямоугольник вкладки категории.
+    pub fn tab_rect(&self, k: usize) -> Rect {
+        let u = self.u();
+        let (w, h, gap) = (170.0 * u, 26.0 * u, 6.0 * u);
+        let n = self.categories.len() as f32;
+        let total = n * w + (n - 1.0) * gap;
+        let x0 = (self.camera.viewport[0] - total) / 2.0;
+        let y = self.hotbar_rect(0)[1] - 70.0 * u;
+        [x0 + k as f32 * (w + gap), y, w, h]
     }
 
     /// Команды стройки от тайла `start` до `end`. Ленты — «уголком» (сначала по X, затем по Y)
@@ -848,13 +897,30 @@ impl Game {
             );
         }
 
+        // вкладки категорий
+        for k in 0..self.categories.len() {
+            let r = self.tab_rect(k);
+            let name = self.categories[k].0;
+            if ui.button(hud, atlas, white, r, name, 2.0 * u, true) {
+                self.set_category(k);
+            }
+            if k == self.category {
+                hud.rect(
+                    atlas,
+                    white,
+                    [r[0], r[1] + r[3] - 3.0 * u, r[2], 3.0 * u],
+                    orange,
+                );
+            }
+        }
+
         // панель построек: клик выбирает, наведение — подсказка
         let mut tooltip = None;
         for i in 0..self.hotbar.len() {
             let r = self.hotbar_rect(i);
             let b = self.hotbar[i];
             ui.block(r);
-            let selected = self.tool == Some(i);
+            let selected = self.tool == Some(b);
             let hover = ui.hovered(r);
             if selected || hover {
                 let c = if selected {
@@ -914,7 +980,9 @@ impl Game {
                 self.block_info(b),
                 self.rot
             ),
-            (None, None) => "CHOOSE A BUILDING (CLICK OR 1-9, 0), THEN CLICK THE MAP".to_owned(),
+            (None, None) => {
+                "CHOOSE A BUILDING (CLICK OR 1-5, TAB: CATEGORY), THEN CLICK THE MAP".to_owned()
+            }
         };
         let r0 = self.hotbar_rect(0);
         let lw = text_width(&label, 2.0 * u);
@@ -976,7 +1044,8 @@ impl Game {
             let lines = [
                 "CONTROLS",
                 "",
-                "1-9, 0 / CLICK      CHOOSE BUILDING",
+                "1-5 / CLICK         CHOOSE BUILDING",
+                "TAB / CLICK TAB     BUILDING CATEGORY",
                 "CLICK A BUILDING    INSPECT (SET SORTER FILTER)",
                 "LEFT CLICK          BUILD",
                 "LEFT DRAG           BUILD A LINE (BELTS TURN)",
@@ -1090,6 +1159,8 @@ impl Game {
                     item.map_or("NOTHING".to_owned(), |i| self.item_name(i))
                 ));
             }
+            Detail::Network => {}
+            Detail::HeatEngine { output } => lines.push(format!("OUTPUT {output} POWER / TICK")),
             Detail::Bridge { items, linked } => {
                 lines.push(if *linked {
                     "LINKED: SENDING".to_owned()
@@ -1098,6 +1169,23 @@ impl Game {
                 });
                 lines.push(format!("BUFFER {}", items.len()));
             }
+        }
+        if let Some(h) = &ins.heat {
+            let state = if h.temperature >= 1000 {
+                "OVERHEATED"
+            } else if h.temperature > ferrustry_sim::thermal::THROTTLE_FROM {
+                "SLOWING DOWN"
+            } else {
+                "OK"
+            };
+            lines.push(format!("HEAT {}%  {state}", h.temperature / 10));
+            lines.push(format!("HEAT +{} -{} / TICK", h.generated, h.removed));
+        }
+        if let Some(f) = &ins.fluid {
+            let name = f.fluid.map_or("EMPTY".to_owned(), |x| {
+                self.reg.fluid(x).name.to_uppercase()
+            });
+            lines.push(format!("{name} {} / {}", f.amount, f.capacity));
         }
         if let Some(p) = &ins.power {
             lines.push(format!(
@@ -1200,14 +1288,20 @@ impl Game {
                 inputs,
                 outputs,
                 power_use,
+                heat,
                 ..
             } => format!(
-                "{name} {}X{}: {} -> {}, POWER {}",
+                "{name} {}X{}: {} -> {}, POWER {}{}",
                 d.size,
                 d.size,
                 self.stacks(inputs),
                 self.stacks(outputs),
-                power_use
+                power_use,
+                if *heat > 0 {
+                    format!(", HEAT +{heat}")
+                } else {
+                    String::new()
+                }
             ),
             BlockKind::Generator { power } => format!("{name}: +{power} POWER"),
             BlockKind::PowerNode { range } => format!("{name}: LINKS POWER WITHIN {range} TILES"),
@@ -1220,6 +1314,25 @@ impl Game {
                 format!("{name}: JUMPS {range} TILES TO NEXT BRIDGE")
             }
             BlockKind::Battery { capacity } => format!("{name}: STORES {capacity} POWER"),
+            BlockKind::Pipe { capacity } => format!("{name}: CARRIES FLUID ({capacity})"),
+            BlockKind::Condenser {
+                rate, power_use, ..
+            } => {
+                format!("{name} 2X2: MAKES {rate} WATER/TICK, POWER {power_use}")
+            }
+            BlockKind::CoolingTower { rate, cooling, .. } => {
+                format!("{name} 2X2: {rate} WATER -> -{} HEAT", rate * cooling)
+            }
+            BlockKind::HeatPipe { .. } => format!("{name}: CONNECTS HEAT BUILDINGS"),
+            BlockKind::Radiator { dissipation, .. } => format!("{name}: -{dissipation} HEAT/TICK"),
+            BlockKind::HeatEngine {
+                max_heat,
+                power_per_heat_permille,
+                ..
+            } => format!(
+                "{name} 2X2: {max_heat} HEAT -> {} POWER",
+                max_heat * power_per_heat_permille / 1000
+            ),
         };
         if d.cost.is_empty() || self.world.rules().infinite_resources {
             what
@@ -1334,7 +1447,8 @@ mod tests {
     fn clicking_hotbar_selects_building_without_building_under_it() {
         let (mut g, mut e) = playing();
         let before = g.world.buildings().len();
-        let slot = center(g.hotbar_rect(5));
+        g.set_category(1);
+        let slot = center(g.hotbar_rect(1));
         click(&mut g, &mut e, slot);
         assert_eq!(g.selected_block(), g.reg.block_by_name("smelter"));
         g.update(0.2);
@@ -1503,7 +1617,7 @@ mod tests {
     fn not_enough_resources_is_explained() {
         let (mut g, mut e) = playing();
         // ядро стоит 500 слитков + 100 стали, на старте 150 слитков
-        g.tool = Some(g.hotbar.len() - 1);
+        g.tool = g.reg.block_by_name("core");
         click_tile(&mut g, TilePos::new(60, 30));
         frame(&mut g, &mut e);
         g.handle(Input::MouseDown(Button::Left));

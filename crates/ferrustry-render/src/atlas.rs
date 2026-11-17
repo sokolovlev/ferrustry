@@ -27,6 +27,8 @@ pub mod palette {
     pub const GUNMETAL: [u8; 4] = [0x34, 0x38, 0x4A, 0xFF];
     /// Deep Space #1B1F2A.
     pub const DEEP_SPACE: [u8; 4] = [0x1B, 0x1F, 0x2A, 0xFF];
+    /// Вода (жидкости).
+    pub const WATER: [u8; 4] = [0x3A, 0x8F, 0xD9, 0xFF];
     /// Тёмная окантовка (производный от Gunmetal).
     pub const SHADOW: [u8; 4] = [0x20, 0x23, 0x2E, 0xFF];
 }
@@ -380,6 +382,77 @@ fn draw_block(name: &str, size: u8) -> Canvas {
                 };
                 c.fill(11, 23 - i * 5, 10, 3, col);
             }
+        }
+        "pipe" | "heat_pipe" => {
+            let (body, core) = if name == "pipe" {
+                (TITANIUM, WATER)
+            } else {
+                (shade(FORGE_ORANGE, -70), FORGE_ORANGE)
+            };
+            c.fill(0, 11, 32, 10, SHADOW);
+            c.fill(11, 0, 10, 32, SHADOW);
+            c.fill(0, 12, 32, 8, body);
+            c.fill(12, 0, 8, 32, body);
+            c.fill(0, 15, 32, 2, core);
+            c.fill(15, 0, 2, 32, core);
+            c.fill(10, 10, 12, 12, shade(body, -25));
+            c.disc(16.0, 16.0, 3.0, core);
+        }
+        "condenser" => {
+            c.frame(2, 5);
+            c.disc(32.0, 30.0, 20.0, SHADOW);
+            for i in 0..6 {
+                let a = (i as f32 * 60.0).to_radians();
+                c.thick_line(
+                    (32.0, 30.0),
+                    (32.0 + a.cos() * 17.0, 30.0 + a.sin() * 17.0),
+                    2.0,
+                    TITANIUM,
+                );
+            }
+            c.disc(32.0, 30.0, 4.0, STEEL_WHITE);
+            c.disc(50.0, 52.0, 5.0, WATER);
+            c.disc(50.0, 49.0, 3.0, WATER);
+        }
+        "cooling_tower" => {
+            c.frame(2, 5);
+            for y in 8..58 {
+                let t = (y as f32 - 33.0) / 25.0;
+                let half = 12.0 + 8.0 * t * t;
+                let col = if y > 46 {
+                    WATER
+                } else {
+                    shade(TITANIUM, -10 - (y % 6))
+                };
+                c.fill((32.0 - half) as i32, y, (2.0 * half) as i32, 1, col);
+            }
+            c.disc(26.0, 10.0, 5.0, STEEL_WHITE);
+            c.disc(36.0, 7.0, 6.0, STEEL_WHITE);
+        }
+        "radiator" => {
+            c.frame(2, 3);
+            for i in 0..6 {
+                c.fill(
+                    6 + i * 4,
+                    5,
+                    2,
+                    22,
+                    if i % 2 == 0 {
+                        TITANIUM
+                    } else {
+                        shade(FORGE_ORANGE, -60)
+                    },
+                );
+            }
+        }
+        "heat_engine" => {
+            c.frame(2, 5);
+            c.ring(32.0, 32.0, 14.0, 20.0, TITANIUM);
+            c.disc(32.0, 32.0, 14.0, SHADOW);
+            c.disc(32.0, 32.0, 8.0, FORGE_ORANGE);
+            c.disc(32.0, 32.0, 4.0, MOLTEN_GOLD);
+            c.thick_line((32.0, 32.0), (50.0, 14.0), 2.5, STEEL_WHITE);
+            c.fill(8, 50, 14, 6, shade(FORGE_ORANGE, -50));
         }
         _ => {
             c.frame(2, 4);

@@ -214,6 +214,7 @@ fn map_key(code: KeyCode) -> Option<Key> {
         KeyCode::F5 => Key::Save,
         KeyCode::F9 => Key::Load,
         KeyCode::F1 => Key::Help,
+        KeyCode::Tab => Key::NextCategory,
         KeyCode::Equal | KeyCode::NumpadAdd => Key::Faster,
         KeyCode::Minus | KeyCode::NumpadSubtract => Key::Slower,
         KeyCode::KeyW | KeyCode::ArrowUp => Key::PanUp,

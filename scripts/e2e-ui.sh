@@ -20,7 +20,7 @@ click() { xdotool mousemove "$1" "$2"; sleep 0.3; xdotool mousedown 1; sleep 0.1
 shot() { xwd -root -silent | convert xwd:- "$OUT/$1.png" 2>/dev/null || true; }
 shot e2e-menu
 click 640 311                     # NEW GAME
-click 290 648                     # слот 1: лента (11 слотов по 64+6 px, по центру)
+click 535 648                     # слот 1: лента (вкладка LOGISTICS: 4 слота по 64+6 px, по центру)
 xdotool mousemove 300 450; sleep 0.3; xdotool mousedown 1; sleep 0.2
 xdotool mousemove 500 450; sleep 0.2; xdotool mousemove 700 450; sleep 0.2
 xdotool mouseup 1; sleep 0.8
