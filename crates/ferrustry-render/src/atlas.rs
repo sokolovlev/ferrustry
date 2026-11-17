@@ -239,6 +239,54 @@ fn draw_item(name: &str) -> Canvas {
     c
 }
 
+/// Враги: органические силуэты в «чужих» красно-фиолетовых тонах (контраст с базой игрока).
+fn draw_unit(name: &str) -> Canvas {
+    let body = [0xB0, 0x2E, 0x3C, 0xFF];
+    let dark = [0x5A, 0x14, 0x24, 0xFF];
+    let eye = [0xFF, 0xE0, 0x4A, 0xFF];
+    match name {
+        "brute" => {
+            let mut c = Canvas::new(40, 40);
+            c.disc(20.0, 20.0, 17.0, dark);
+            c.disc(20.0, 20.0, 14.0, body);
+            for (dx, dy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                c.thick_line(
+                    (20.0, 20.0),
+                    (20.0 + dx * 18.0, 20.0 + dy * 18.0),
+                    2.5,
+                    dark,
+                );
+            }
+            c.disc(27.0, 16.0, 3.0, eye);
+            c.disc(27.0, 24.0, 3.0, eye);
+            c
+        }
+        _ => {
+            let mut c = Canvas::new(24, 24);
+            for (dx, dy) in [
+                (-1.0, -0.6),
+                (-1.0, 0.6),
+                (0.0, -1.0),
+                (0.0, 1.0),
+                (1.0, -0.6),
+                (1.0, 0.6),
+            ] {
+                c.thick_line(
+                    (12.0, 12.0),
+                    (12.0 + dx * 10.0, 12.0 + dy * 10.0),
+                    1.2,
+                    dark,
+                );
+            }
+            c.disc(12.0, 12.0, 7.0, dark);
+            c.disc(12.0, 12.0, 5.5, body);
+            c.disc(16.0, 10.0, 1.6, eye);
+            c.disc(16.0, 14.0, 1.6, eye);
+            c
+        }
+    }
+}
+
 fn draw_block(name: &str, size: u8) -> Canvas {
     let px = u32::from(size) * TILE_PX;
     let mut c = Canvas::new(px, px);
@@ -383,6 +431,28 @@ fn draw_block(name: &str, size: u8) -> Canvas {
                 c.fill(11, 23 - i * 5, 10, 3, col);
             }
         }
+        "gun_turret" => {
+            c.frame(2, 6);
+            c.ring(32.0, 32.0, 18.0, 22.0, SHADOW);
+            for (x, y) in [(9, 9), (51, 9), (9, 51), (51, 51)] {
+                c.fill(x, y, 4, 4, TITANIUM);
+            }
+        }
+        "iron_wall" => {
+            c.fill(0, 0, 32, 32, SHADOW);
+            c.fill(1, 1, 30, 30, shade(TITANIUM, -45));
+            for (x, y, w) in [
+                (1, 1, 15),
+                (17, 1, 14),
+                (1, 11, 9),
+                (11, 11, 20),
+                (1, 21, 15),
+                (17, 21, 14),
+            ] {
+                c.fill(x, y, w, 9, shade(TITANIUM, -25));
+                c.fill(x, y, w, 1, shade(TITANIUM, 5));
+            }
+        }
         "pipe" | "heat_pipe" => {
             let (body, core) = if name == "pipe" {
                 (TITANIUM, WATER)
@@ -504,6 +574,26 @@ impl Atlas {
         for i in reg.items() {
             items.push((format!("item:{}", i.name), draw_item(&i.name)));
         }
+        for u in reg.units() {
+            items.push((format!("unit:{}", u.name), draw_unit(&u.name)));
+        }
+        items.push(("projectile".into(), {
+            let mut c = Canvas::new(8, 8);
+            c.disc(4.0, 4.0, 3.5, shade(MOLTEN_GOLD, -40));
+            c.disc(4.0, 4.0, 2.2, STEEL_WHITE);
+            c
+        }));
+        items.push(("turret_barrel".into(), {
+            // ствол «вправо»: поворачивается в направлении выстрела
+            let mut c = Canvas::new(64, 64);
+            c.fill(30, 27, 30, 10, SHADOW);
+            c.fill(32, 29, 28, 6, TITANIUM);
+            c.fill(54, 28, 6, 8, FORGE_ORANGE);
+            c.disc(32.0, 32.0, 11.0, SHADOW);
+            c.disc(32.0, 32.0, 9.0, GUNMETAL);
+            c.disc(32.0, 32.0, 3.0, FORGE_ORANGE);
+            c
+        }));
         for b in reg.blocks() {
             items.push((format!("block:{}", b.name), draw_block(&b.name, b.size)));
         }

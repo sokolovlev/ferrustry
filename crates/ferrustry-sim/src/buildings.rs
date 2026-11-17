@@ -47,6 +47,10 @@ pub enum KindTag {
     Radiator,
     /// Тепловая машина.
     HeatEngine,
+    /// Турель.
+    Turret,
+    /// Стена.
+    Wall,
 }
 
 /// Общие данные постройки.
@@ -66,6 +70,8 @@ pub struct Building {
     pub(crate) row: u32,
     /// Энергосеть, к которой подключена постройка.
     pub(crate) power_net: Option<u32>,
+    /// Прочность.
+    pub(crate) health: u32,
     /// Тепловая сеть.
     pub(crate) heat_net: Option<u32>,
     /// Жидкостная сеть.
@@ -79,6 +85,11 @@ pub struct Building {
 }
 
 impl Building {
+    /// Текущая прочность.
+    pub fn health(&self) -> u32 {
+        self.health
+    }
+
     /// Содержит ли постройка тайл.
     pub fn contains(&self, p: TilePos) -> bool {
         let s = i32::from(self.size);

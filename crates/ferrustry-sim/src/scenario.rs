@@ -480,8 +480,20 @@ pub fn demo_map(reg: &ContentRegistry, seed: u64) -> Result<World, ScenarioError
     cmds.push(place(ids.core, kx, ky, Dir::Right));
     build(&mut world, reg, &cmds)?;
     // экономика: стартовая база бесплатна, дальше стройка стоит ресурсов из ядра
+    // точки появления врагов — на левом и правом краях; пол там гарантированно проходим
+    let spawns = vec![TilePos::new(2, h / 2), TilePos::new(w - 3, h / 2)];
+    for sp in &spawns {
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                world.set_floor(TilePos::new(sp.x + dx, sp.y + dy), ids.basalt);
+            }
+        }
+    }
+    world.set_spawns(spawns);
     world.set_rules(crate::world::Rules {
         infinite_resources: false,
+        waves: true,
+        ..Default::default()
     });
     world.grant(reg, ids.iron_ingot, STARTER_INGOTS);
     Ok(world)
@@ -489,3 +501,65 @@ pub fn demo_map(reg: &ContentRegistry, seed: u64) -> Result<World, ScenarioError
 
 /// Стартовый запас слитков на демо-карте.
 pub const STARTER_INGOTS: u32 = 150;
+
+/// B5 «массовое сражение»: ядро в центре карты 160×160, кольцо из `turrets` турелей вокруг него
+/// (боекомплект полный), `units` врагов (каждый пятый — тяжёлый) равномерно по краям карты.
+pub fn bench_battle(
+    reg: &ContentRegistry,
+    units: u32,
+    turrets: u32,
+) -> Result<World, ScenarioError> {
+    let ids = BaseIds::resolve(reg)?;
+    let turret = reg
+        .block_by_name("gun_turret")
+        .ok_or(ScenarioError::MissingContent("gun_turret"))?;
+    let crawler = reg
+        .unit_by_name("crawler")
+        .ok_or(ScenarioError::MissingContent("crawler"))?;
+    let brute = reg
+        .unit_by_name("brute")
+        .ok_or(ScenarioError::MissingContent("brute"))?;
+    let side = 160;
+    let mut w = World::new(reg, side as u32, side as u32, ids.basalt, 5);
+    let c = side / 2;
+    build(&mut w, reg, &[place(ids.core, c - 1, c - 1, Dir::Right)])?;
+    // турели по квадратным кольцам вокруг ядра с шагом 3 тайла
+    let mut placed = 0;
+    let mut ring = 3;
+    'rings: while placed < turrets && ring < c - 4 {
+        for k in -ring..ring {
+            for (x, y) in [
+                (c + k, c - ring),
+                (c + ring, c + k),
+                (c - k, c + ring),
+                (c - ring, c - k),
+            ] {
+                if placed >= turrets {
+                    break 'rings;
+                }
+                if (x + y) % 3 == 0 && w.apply(reg, &place(turret, x, y, Dir::Right)).is_ok() {
+                    placed += 1;
+                }
+            }
+        }
+        ring += 3;
+    }
+    w.debug_fill_turrets(reg);
+    for i in 0..units as i32 {
+        let t = i * 4 * (side - 4) / units.max(1) as i32;
+        let (x, y) = match t / (side - 4) {
+            0 => (2 + t % (side - 4), 1),
+            1 => (side - 2, 2 + t % (side - 4)),
+            2 => (side - 3 - t % (side - 4), side - 2),
+            _ => (1, side - 3 - t % (side - 4)),
+        };
+        let kind = if i % 5 == 0 { brute } else { crawler };
+        w.spawn_unit(
+            reg,
+            kind,
+            x * crate::combat::SUB + 128,
+            y * crate::combat::SUB + 128,
+        );
+    }
+    Ok(w)
+}

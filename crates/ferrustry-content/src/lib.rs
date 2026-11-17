@@ -89,6 +89,8 @@ struct RawContent {
     items: Vec<RawItem>,
     #[serde(default)]
     fluids: Vec<RawItem>,
+    #[serde(default)]
+    units: Vec<RawUnit>,
     ores: Vec<RawOre>,
     blocks: Vec<RawBlock>,
 }
@@ -120,7 +122,21 @@ struct RawBlock {
     size: u8,
     #[serde(default)]
     cost: Vec<(String, u32)>,
+    /// 0 — по умолчанию (60 × площадь).
+    #[serde(default)]
+    health: u32,
     kind: RawKind,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawUnit {
+    name: String,
+    health: u32,
+    speed: u32,
+    damage: u32,
+    cooldown: u32,
+    radius: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -148,6 +164,16 @@ enum RawKind {
     Pipe {
         capacity: u32,
     },
+    Turret {
+        range: u32,
+        damage: u32,
+        reload: u32,
+        ammo: String,
+        shots_per_item: u32,
+        projectile_speed: u32,
+        buffer: u32,
+    },
+    Wall,
     Condenser {
         fluid: String,
         rate: u32,
@@ -276,6 +302,25 @@ pub enum BlockKind {
         /// Теплоёмкость (вклад в тепловую сеть).
         heat_capacity: u32,
     },
+    /// Турель: стреляет по врагам в радиусе, расходуя боеприпасы.
+    Turret {
+        /// Радиус в тайлах.
+        range: u32,
+        /// Урон снаряда.
+        damage: u32,
+        /// Тиков между выстрелами.
+        reload: u32,
+        /// Ресурс-боеприпас.
+        ammo: ItemId,
+        /// Выстрелов на один предмет.
+        shots_per_item: u32,
+        /// Скорость снаряда, 1/256 тайла за тик.
+        projectile_speed: u32,
+        /// Ёмкость в предметах.
+        buffer: u32,
+    },
+    /// Стена: только прочность.
+    Wall,
     /// Труба: соединяет жидкостные постройки в сеть.
     Pipe {
         /// Объём.
@@ -368,8 +413,33 @@ pub struct BlockDef {
     pub size: u8,
     /// Стоимость постройки (списывается из ядер, возвращается при сносе).
     pub cost: Vec<ItemStack>,
+    /// Прочность.
+    pub health: u32,
     /// Поведение.
     pub kind: BlockKind,
+}
+
+/// ID типа юнита.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, Deserialize,
+)]
+pub struct UnitTypeId(pub u16);
+
+/// Тип юнита (сейчас — враги волн).
+#[derive(Debug, Clone)]
+pub struct UnitDef {
+    /// Уникальное имя.
+    pub name: String,
+    /// Прочность.
+    pub health: u32,
+    /// Скорость, 1/256 тайла за тик.
+    pub speed: u32,
+    /// Урон за удар.
+    pub damage: u32,
+    /// Тиков между ударами.
+    pub cooldown: u32,
+    /// Радиус, 1/256 тайла.
+    pub radius: u32,
 }
 
 impl BlockDef {
@@ -420,6 +490,8 @@ pub struct ContentRegistry {
     items: Vec<ItemDef>,
     ores: Vec<OreDef>,
     blocks: Vec<BlockDef>,
+    units: Vec<UnitDef>,
+    unit_names: HashMap<String, UnitTypeId>,
     fluids: Vec<FluidDef>,
     fluid_names: HashMap<String, FluidId>,
     floor_names: HashMap<String, FloorId>,
@@ -492,6 +564,26 @@ impl ContentRegistry {
                 name: f.name.clone(),
             })
             .collect();
+        let unit_names = index_names(raw.units.iter().map(|u| u.name.clone()), "unit", UnitTypeId)?;
+        let mut units = Vec::with_capacity(raw.units.len());
+        for (i, u) in raw.units.iter().enumerate() {
+            for (v, f) in [
+                (u.health, "health"),
+                (u.speed, "speed"),
+                (u.cooldown, "cooldown"),
+                (u.radius, "radius"),
+            ] {
+                positive(v, || format!("units[{i}] `{}`.{f}", u.name))?;
+            }
+            units.push(UnitDef {
+                name: u.name.clone(),
+                health: u.health,
+                speed: u.speed,
+                damage: u.damage,
+                cooldown: u.cooldown,
+                radius: u.radius,
+            });
+        }
         let ore_names = index_names(raw.ores.iter().map(|f| f.name.clone()), "ore", OreId)?;
         let block_names = index_names(raw.blocks.iter().map(|f| f.name.clone()), "block", BlockId)?;
 
@@ -642,6 +734,35 @@ impl ContentRegistry {
                     positive(capacity, || p("capacity"))?;
                     BlockKind::Battery { capacity }
                 }
+                RawKind::Turret {
+                    range,
+                    damage,
+                    reload,
+                    ammo,
+                    shots_per_item,
+                    projectile_speed,
+                    buffer,
+                } => {
+                    for (v, f) in [
+                        (range, "range"),
+                        (reload, "reload"),
+                        (shots_per_item, "shots_per_item"),
+                        (projectile_speed, "projectile_speed"),
+                        (buffer, "buffer"),
+                    ] {
+                        positive(v, || p(f))?;
+                    }
+                    BlockKind::Turret {
+                        range,
+                        damage,
+                        reload,
+                        ammo: resolve(&item_names, &ammo, "item", || p("ammo"))?,
+                        shots_per_item,
+                        projectile_speed,
+                        buffer,
+                    }
+                }
+                RawKind::Wall => BlockKind::Wall,
                 RawKind::Pipe { capacity } => {
                     positive(capacity, || p("capacity"))?;
                     BlockKind::Pipe { capacity }
@@ -713,10 +834,17 @@ impl ContentRegistry {
                     count: *count,
                 });
             }
+            let default_health = 60 * u32::from(block.size) * u32::from(block.size);
+            let health = if block.health == 0 {
+                default_health
+            } else {
+                block.health
+            };
             blocks.push(BlockDef {
                 name: block.name,
                 size: block.size,
                 cost,
+                health,
                 kind,
             });
         }
@@ -726,6 +854,8 @@ impl ContentRegistry {
             items,
             ores,
             blocks,
+            units,
+            unit_names,
             fluids,
             fluid_names,
             floor_names,
@@ -786,6 +916,21 @@ impl ContentRegistry {
         self.block_names.get(name).copied()
     }
 
+    /// Все типы юнитов в порядке ID.
+    pub fn units(&self) -> &[UnitDef] {
+        &self.units
+    }
+
+    /// Тип юнита. Паникует, если ID получен не из этого реестра.
+    pub fn unit(&self, id: UnitTypeId) -> &UnitDef {
+        &self.units[usize::from(id.0)]
+    }
+
+    /// Поиск типа юнита по имени.
+    pub fn unit_by_name(&self, name: &str) -> Option<UnitTypeId> {
+        self.unit_names.get(name).copied()
+    }
+
     /// Все жидкости в порядке ID.
     pub fn fluids(&self) -> &[FluidDef] {
         &self.fluids
@@ -809,6 +954,7 @@ impl ContentRegistry {
             ores: self.ores.iter().map(|d| d.name.clone()).collect(),
             blocks: self.blocks.iter().map(|d| d.name.clone()).collect(),
             fluids: self.fluids.iter().map(|d| d.name.clone()).collect(),
+            units: self.units.iter().map(|d| d.name.clone()).collect(),
         }
     }
 }
@@ -827,6 +973,9 @@ pub struct NameTable {
     /// Имена жидкостей.
     #[serde(default)]
     pub fluids: Vec<String>,
+    /// Имена типов юнитов.
+    #[serde(default)]
+    pub units: Vec<String>,
 }
 
 #[cfg(test)]

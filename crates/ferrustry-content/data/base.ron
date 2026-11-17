@@ -15,6 +15,11 @@
     fluids: [
         (name: "water"),
     ],
+    // враги волн: скорость и радиус — в 1/256 тайла
+    units: [
+        (name: "crawler", health: 40, speed: 20, damage: 6, cooldown: 20, radius: 80),
+        (name: "brute", health: 260, speed: 10, damage: 25, cooldown: 30, radius: 120),
+    ],
     ores: [
         (name: "iron_vein", item: "iron_ore"),
         (name: "carbon_seam", item: "carbon"),
@@ -140,9 +145,25 @@
             kind: HeatEngine(max_heat: 8, power_per_heat_permille: 500, heat_capacity: 200),
         ),
         (
+            name: "gun_turret",
+            cost: [("iron_ingot", 30)],
+            size: 2,
+            health: 400,
+            // 1 слиток = 4 выстрела по 12 урона; радиус 9 тайлов
+            kind: Turret(range: 9, damage: 12, reload: 15, ammo: "iron_ingot", shots_per_item: 4, projectile_speed: 96, buffer: 10),
+        ),
+        (
+            name: "iron_wall",
+            cost: [("iron_ingot", 4)],
+            size: 1,
+            health: 400,
+            kind: Wall,
+        ),
+        (
             name: "core",
             cost: [("iron_ingot", 500), ("steel", 100)],
             size: 3,
+            health: 3000,
             kind: Core(capacity: 4000),
         ),
     ],

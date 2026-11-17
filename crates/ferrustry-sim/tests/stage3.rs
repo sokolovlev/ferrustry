@@ -56,6 +56,7 @@ fn building_costs_are_paid_refunded_and_enforced() {
     scenario::build(&mut w, &reg, &[place(ids.core, 20, 20, Dir::Right)]).unwrap();
     w.set_rules(Rules {
         infinite_resources: false,
+        ..Default::default()
     });
     w.grant(&reg, ids.iron_ingot, 12);
 

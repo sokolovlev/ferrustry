@@ -22,7 +22,7 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless run [--ticks N] [--save FILE]   вертикальный срез, сводка
   ferrustry-headless resume FILE [--ticks N]          продолжить сохранение
   ferrustry-headless save-check [--ticks N]           save → load → сравнить продолжение
-  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
+  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3|b5> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
   ferrustry-headless suite [--runs N] [--quick] [--out FILE]  полный набор бенчмарков (медианы)
   ferrustry-headless record --out FILE [--seed S] [--ticks N] [--size N] [--checkpoint-every N]
                                                     записать партию (случайная стройка)
@@ -291,6 +291,8 @@ struct Report {
     awake_drills: usize,
     items_on_conveyors: u64,
     items_in_cores: u64,
+    units: usize,
+    kills: u64,
     setup_ms: f64,
     tick: TickStats,
     allocations_per_tick: f64,
@@ -314,9 +316,10 @@ fn bench(
         "b2-blocked" => scenario::bench_blocked_lines(reg, n),
         "b2-comb" => scenario::bench_combs(reg, n),
         "b3" => scenario::bench_megabase(reg, n),
+        "b5" => scenario::bench_battle(reg, n, 300),
         other => {
             return Err(format!(
-                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb, b3)"
+                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb, b3, b5)"
             ));
         }
     }
@@ -371,6 +374,8 @@ fn bench(
         awake_drills: w.awake_drills(),
         items_on_conveyors: w.items_on_conveyors().iter().sum(),
         items_in_cores: w.total_core_items().iter().sum(),
+        units: w.units().count(),
+        kills: w.kills(),
         setup_ms,
         tick: TickStats {
             mean_us: mean,
@@ -415,18 +420,20 @@ fn suite(runs: u64, quick: bool, out: &str) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let (warmup, ticks) = if quick { (1000, 500) } else { (6000, 3000) };
     let sizes: &[u64] = if quick { &[10_000] } else { &[10_000, 100_000] };
-    let mut cases: Vec<(&str, u64)> = vec![("b1", 0)];
+    let mut cases: Vec<(&str, u64, u64, u64)> = vec![("b1", 0, warmup, ticks)];
     for s in ["b2", "b2-blocked", "b2-comb", "b3"] {
         for &n in sizes {
-            cases.push((s, n));
+            cases.push((s, n, warmup, ticks));
         }
     }
+    // B5: бой не установившийся — марш и сражение, первые 1500 тиков без прогрева
+    cases.push(("b5", if quick { 300 } else { 1000 }, 0, 1500));
     let mut results = Vec::new();
     println!(
         "{:<11} {:>7} {:>11} {:>11} {:>8} {:>9}",
         "scenario", "size", "mean_us", "p99_us", "alloc/t", "rss_mib"
     );
-    for (name, n) in cases {
+    for (name, n, warmup, ticks) in cases {
         let mut reports: Vec<serde_json::Value> = Vec::new();
         for _ in 0..runs.max(1) {
             let output = std::process::Command::new(&exe)

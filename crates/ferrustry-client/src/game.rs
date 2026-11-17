@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use ferrustry_content::{BlockId, BlockKind, ContentRegistry};
 use ferrustry_render::atlas::palette;
 use ferrustry_render::{Atlas, Camera, Ghost, Hud, SpriteBatch, SpriteTable, build_world, rgba};
+use ferrustry_sim::combat::Outcome;
 use ferrustry_sim::{
     Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePos, World, scenario,
 };
@@ -107,12 +108,13 @@ pub enum Request {
 const QUICKSAVE: &str = "ferrustry-quicksave.fsave";
 
 /// Категории панели построек (вкладки).
-const CATEGORIES: [(&str, &[&str]); 4] = [
+const CATEGORIES: [(&str, &[&str]); 5] = [
     (
         "LOGISTICS",
         &["conveyor", "splitter", "sorter", "bridge_conveyor"],
     ),
     ("PRODUCTION", &["bore", "smelter", "steel_forge", "core"]),
+    ("DEFENSE", &["gun_turret", "iron_wall"]),
     (
         "POWER",
         &["wind_turbine", "power_node", "battery", "heat_engine"],
@@ -163,6 +165,7 @@ pub struct Game {
     show_help: bool,
     quicksave_exists: bool,
     inspected: Option<TilePos>,
+    last_wave: u32,
 }
 
 /// Скользящий счётчик частоты.
@@ -234,6 +237,7 @@ impl Game {
             ui_scale: 1.0,
             show_help: false,
             inspected: None,
+            last_wave: 0,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -277,6 +281,10 @@ impl Game {
                 self.world = w;
                 self.drag = None;
                 self.pending.clear();
+                self.last_wave = self
+                    .world
+                    .wave_info()
+                    .map_or(0, |(n, _)| n.saturating_sub(1));
                 self.screen = Screen::Playing;
                 self.notify("GAME LOADED");
             }
@@ -297,6 +305,7 @@ impl Game {
                 self.drag = None;
                 self.pending.clear();
                 self.paused = false;
+                self.last_wave = 0;
                 self.screen = Screen::Playing;
                 self.message = Some((
                     "CHOOSE A BUILDING BELOW (1-5, TAB: CATEGORY), THEN CLICK THE MAP".into(),
@@ -462,7 +471,7 @@ impl Game {
     /// Прямоугольник вкладки категории.
     pub fn tab_rect(&self, k: usize) -> Rect {
         let u = self.u();
-        let (w, h, gap) = (170.0 * u, 26.0 * u, 6.0 * u);
+        let (w, h, gap) = (150.0 * u, 26.0 * u, 6.0 * u);
         let n = self.categories.len() as f32;
         let total = n * w + (n - 1.0) * gap;
         let x0 = (self.camera.viewport[0] - total) / 2.0;
@@ -605,7 +614,7 @@ impl Game {
         let mut ticks = 0;
         let running = match self.screen {
             Screen::MainMenu => true,
-            Screen::Playing => !self.paused,
+            Screen::Playing => !self.paused && self.world.outcome() == Outcome::Running,
             Screen::PauseMenu => false,
         };
         if running {
@@ -624,6 +633,19 @@ impl Game {
             }
         }
         self.tps.tick(dt, ticks);
+        if self.screen == Screen::Playing
+            && let Some((next, _)) = self.world.wave_info()
+        {
+            let arrived = next.saturating_sub(1);
+            if arrived > self.last_wave {
+                self.last_wave = arrived;
+                let n: u32 = World::wave_composition(&self.reg, arrived)
+                    .iter()
+                    .map(|(_, c)| c)
+                    .sum();
+                self.message = Some((format!("WAVE {arrived}: {n} ENEMIES INCOMING"), 5.0));
+            }
+        }
     }
 
     /// Собирает кадр: слой мира и слой интерфейса (и обрабатывает клики по интерфейсу).
@@ -690,6 +712,11 @@ impl Game {
                 self.play_hud(&mut ui, atlas, table, hud);
                 self.pause_menu(&mut ui, atlas, table, hud);
             }
+        }
+        if self.screen == Screen::Playing
+            && let Outcome::Lost { .. } = self.world.outcome()
+        {
+            self.game_over(&mut ui, atlas, table, hud);
         }
         self.toast(atlas, table, hud);
         ui.end();
@@ -786,6 +813,47 @@ impl Game {
         );
     }
 
+    fn game_over(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
+        let u = self.u();
+        let (vw, vh) = (self.camera.viewport[0], self.camera.viewport[1]);
+        let white = table.white;
+        hud.rect(atlas, white, [0.0, 0.0, vw, vh], [0.08, 0.0, 0.0, 0.6]);
+        let t = "CORE DESTROYED";
+        let ty = vh * 0.25;
+        hud.text(
+            atlas,
+            (vw - text_width(t, 6.0 * u)) / 2.0,
+            ty,
+            6.0 * u,
+            t,
+            rgba(palette::FORGE_ORANGE),
+        );
+        let waves = self
+            .world
+            .wave_info()
+            .map_or(0, |(n, _)| n.saturating_sub(2));
+        let sub = format!(
+            "SURVIVED {waves} WAVES  -  {} ENEMIES DESTROYED",
+            self.world.kills()
+        );
+        hud.text(
+            atlas,
+            (vw - text_width(&sub, 2.0 * u)) / 2.0,
+            ty + 64.0 * u,
+            2.0 * u,
+            &sub,
+            rgba(palette::STEEL_WHITE),
+        );
+        let r = self.menu_rects(2, ty + 110.0 * u);
+        if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
+            self.new_game();
+        }
+        if ui.button(hud, atlas, white, r[1], "MAIN MENU", 3.0 * u, true) {
+            self.screen = Screen::MainMenu;
+            self.tool = None;
+        }
+    }
+
     fn pause_menu(&mut self, ui: &mut Ui, atlas: &Atlas, table: &SpriteTable, hud: &mut Hud) {
         let u = self.u();
         let (vw, vh) = (self.camera.viewport[0], self.camera.viewport[1]);
@@ -845,8 +913,24 @@ impl Game {
         let steel = rgba(palette::STEEL_WHITE);
         let titanium = rgba(palette::TITANIUM);
 
-        // заголовок и статус
-        ui.panel(hud, atlas, white, [0.0, 0.0, 380.0 * u, 64.0 * u], panel);
+        // заголовок, статус и волны
+        ui.panel(hud, atlas, white, [0.0, 0.0, 380.0 * u, 84.0 * u], panel);
+        if let Some((n, left)) = self.world.wave_info() {
+            let secs = left / u64::from(TICKS_PER_SECOND);
+            let enemies = self.world.units().count();
+            let wave = format!(
+                "WAVE {n} IN {}:{:02}  ENEMIES {enemies}  KILLS {}",
+                secs / 60,
+                secs % 60,
+                self.world.kills()
+            );
+            let col = if left < 30 * u64::from(TICKS_PER_SECOND) {
+                orange
+            } else {
+                steel
+            };
+            hud.text(atlas, 12.0 * u, 60.0 * u, 2.0 * u, &wave, col);
+        }
         hud.text(atlas, 12.0 * u, 10.0 * u, 3.0 * u, "FERRUSTRY", orange);
         let status = format!(
             "TICK {}  FPS {:.0}  TPS {:.0}  X{}{}",
@@ -1161,6 +1245,8 @@ impl Game {
             }
             Detail::Network => {}
             Detail::HeatEngine { output } => lines.push(format!("OUTPUT {output} POWER / TICK")),
+            Detail::Turret { ammo } => lines.push(format!("AMMO {ammo} SHOTS")),
+            Detail::Wall => {}
             Detail::Bridge { items, linked } => {
                 lines.push(if *linked {
                     "LINKED: SENDING".to_owned()
@@ -1169,6 +1255,9 @@ impl Game {
                 });
                 lines.push(format!("BUFFER {}", items.len()));
             }
+        }
+        if ins.health < ins.max_health {
+            lines.push(format!("HEALTH {} / {}", ins.health, ins.max_health));
         }
         if let Some(h) = &ins.heat {
             let state = if h.temperature >= 1000 {
@@ -1314,6 +1403,17 @@ impl Game {
                 format!("{name}: JUMPS {range} TILES TO NEXT BRIDGE")
             }
             BlockKind::Battery { capacity } => format!("{name}: STORES {capacity} POWER"),
+            BlockKind::Turret {
+                range,
+                damage,
+                ammo,
+                shots_per_item,
+                ..
+            } => format!(
+                "{name} 2X2: RANGE {range}, DAMAGE {damage}, AMMO {} ({shots_per_item} SHOTS)",
+                self.item_name(*ammo)
+            ),
+            BlockKind::Wall => format!("{name}: {} HEALTH, ENEMIES PREFER TO GO AROUND", d.health),
             BlockKind::Pipe { capacity } => format!("{name}: CARRIES FLUID ({capacity})"),
             BlockKind::Condenser {
                 rate, power_use, ..
@@ -1629,6 +1729,44 @@ mod tests {
             .map(|(m, _)| m.clone())
             .unwrap_or_default();
         assert_eq!(msg, "NOT ENOUGH IRON INGOT");
+    }
+
+    #[test]
+    fn losing_the_core_stops_the_game_and_offers_a_new_one() {
+        let (mut g, mut e) = playing();
+        let brute = g.reg.unit_by_name("brute").unwrap();
+        // ядро стартовой базы — в центре карты; окружить его тяжёлыми врагами
+        let core = g
+            .world
+            .buildings()
+            .iter()
+            .find(|(_, b)| b.tag == ferrustry_sim::KindTag::Core)
+            .map(|(_, b)| b.origin)
+            .unwrap();
+        let sub = ferrustry_sim::combat::SUB;
+        for k in 0..24 {
+            let (x, y) = (core.x - 1 + (k % 5), core.y - 1 + (k / 5) % 5);
+            if g.world.grid().building(TilePos::new(x, y)).is_none() {
+                g.world
+                    .spawn_unit(&g.reg, brute, x * sub + 128, y * sub + 128);
+            }
+        }
+        for _ in 0..400 {
+            g.update(1.0 / 30.0 + 1e-6);
+            if g.world.outcome() != Outcome::Running {
+                break;
+            }
+        }
+        assert!(matches!(g.world.outcome(), Outcome::Lost { .. }));
+        let t = g.world.tick_count();
+        g.update(1.0);
+        assert_eq!(g.world.tick_count(), t, "simulation stops after defeat");
+        frame(&mut g, &mut e);
+        let vh = 720.0;
+        let new_game = g.menu_rects(2, vh * 0.25 + 110.0)[0];
+        click(&mut g, &mut e, center(new_game));
+        assert_eq!(g.world.outcome(), Outcome::Running);
+        assert_eq!(g.screen(), Screen::Playing);
     }
 
     #[test]

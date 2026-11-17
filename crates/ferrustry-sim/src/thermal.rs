@@ -446,8 +446,12 @@ impl World {
         // пассивное охлаждение производств и радиаторы — только участники тепловых сетей
         for r in 0..self.crafters.len() {
             let owner = self.crafters.owners[r];
-            let Some(b) = self.buildings.get(owner) else { continue };
-            let BlockKind::Crafter { heat, cooling, .. } = reg.block(b.block).kind else { continue };
+            let Some(b) = self.buildings.get(owner) else {
+                continue;
+            };
+            let BlockKind::Crafter { heat, cooling, .. } = reg.block(b.block).kind else {
+                continue;
+            };
             if heat == 0 {
                 continue;
             }
@@ -459,8 +463,12 @@ impl World {
         }
         for r in 0..self.passive.len() {
             let owner = self.passive.owners[r];
-            let Some(b) = self.buildings.get(owner) else { continue };
-            let BlockKind::Radiator { dissipation, .. } = reg.block(b.block).kind else { continue };
+            let Some(b) = self.buildings.get(owner) else {
+                continue;
+            };
+            let BlockKind::Radiator { dissipation, .. } = reg.block(b.block).kind else {
+                continue;
+            };
             if let Some(net) = b.heat_net.and_then(|n| self.heat.nets.get_mut(n as usize)) {
                 let t = u64::from(dissipation).min(net.stored);
                 net.stored -= t;

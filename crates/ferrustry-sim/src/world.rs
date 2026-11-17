@@ -46,12 +46,21 @@ pub enum Command {
 pub struct Rules {
     /// Песочница: стройка бесплатна (тесты, бенчмарки, редактор).
     pub infinite_resources: bool,
+    /// Волны врагов включены.
+    pub waves: bool,
+    /// Тиков до первой волны.
+    pub first_wave: u64,
+    /// Тиков между волнами.
+    pub wave_spacing: u64,
 }
 
 impl Default for Rules {
     fn default() -> Self {
         Self {
             infinite_resources: true,
+            waves: false,
+            first_wave: 5 * 60 * u64::from(TICKS_PER_SECOND),
+            wave_spacing: 2 * 60 * u64::from(TICKS_PER_SECOND),
         }
     }
 }
@@ -189,6 +198,16 @@ pub struct World {
     pub(crate) fluids: crate::thermal::Nets<crate::thermal::FluidNet>,
     pub(crate) heat: crate::thermal::Nets<crate::thermal::HeatNet>,
     pub(crate) fluid_stats: crate::thermal::FluidStats,
+    pub(crate) turrets: Table<crate::combat::TurretRow>,
+    pub(crate) units: crate::combat::Units,
+    pub(crate) projectiles: crate::combat::Projectiles,
+    pub(crate) flow: crate::combat::FlowField,
+    pub(crate) waves: crate::combat::Waves,
+    pub(crate) spawns: Vec<TilePos>,
+    pub(crate) outcome: crate::combat::Outcome,
+    pub(crate) kills: u64,
+    #[serde(skip)]
+    pub(crate) unit_grid: crate::combat::Scratch<crate::combat::UnitGrid>,
     rules: Rules,
     pub(crate) segments: Vec<Option<Segment>>,
     free_segments: Vec<u32>,
@@ -284,6 +303,15 @@ impl World {
             fluids: Default::default(),
             heat: Default::default(),
             fluid_stats: Default::default(),
+            turrets: Table::default(),
+            units: Default::default(),
+            projectiles: Default::default(),
+            flow: Default::default(),
+            waves: Default::default(),
+            spawns: Vec::new(),
+            outcome: Default::default(),
+            kills: 0,
+            unit_grid: Default::default(),
             rules: Rules::default(),
             segments: Vec::new(),
             free_segments: Vec::new(),
@@ -307,8 +335,12 @@ impl World {
         &self.rules
     }
 
-    /// Задать правила (до начала игры или в редакторе).
+    /// Задать правила (до начала игры или в редакторе). Включение волн запускает таймер.
     pub fn set_rules(&mut self, rules: Rules) {
+        if rules.waves && self.waves.next_number == 0 {
+            self.waves.next_number = 1;
+            self.waves.next_tick = self.tick + rules.first_wave;
+        }
         self.rules = rules;
     }
 
@@ -489,6 +521,7 @@ impl World {
         self.update_routers(reg);
         self.update_bridges(reg);
         self.update_conveyors(reg);
+        self.update_combat(reg);
         self.tick += 1;
     }
 
@@ -601,6 +634,8 @@ impl World {
             BlockKind::HeatPipe { .. } => KindTag::HeatPipe,
             BlockKind::Radiator { .. } => KindTag::Radiator,
             BlockKind::HeatEngine { .. } => KindTag::HeatEngine,
+            BlockKind::Turret { .. } => KindTag::Turret,
+            BlockKind::Wall => KindTag::Wall,
         };
         self.topo_epoch += 1;
         let id = self.buildings.insert(Building {
@@ -614,6 +649,7 @@ impl World {
             heat_net: None,
             fluid_net: None,
             dump_cursor: 0,
+            health: def.health,
             dump_epoch: 0,
             dump_links: Vec::new(),
         });
@@ -685,7 +721,9 @@ impl World {
             BlockKind::Pipe { .. }
             | BlockKind::CoolingTower { .. }
             | BlockKind::HeatPipe { .. }
-            | BlockKind::Radiator { .. } => self.passive.push(id, ()),
+            | BlockKind::Radiator { .. }
+            | BlockKind::Wall => self.passive.push(id, ()),
+            BlockKind::Turret { .. } => self.turrets.push(id, Default::default()),
             BlockKind::Condenser { .. } => self.condensers.push(id, Default::default()),
             BlockKind::HeatEngine { .. } => self.engines.push(id, Default::default()),
         };
@@ -762,6 +800,20 @@ impl World {
     }
 
     fn remove(&mut self, reg: &ContentRegistry, at: TilePos) -> Result<(), CommandError> {
+        self.remove_impl(reg, at, true)
+    }
+
+    /// Разрушение (бой): как снос, но без возврата стоимости.
+    pub(crate) fn destroy_at(&mut self, reg: &ContentRegistry, at: TilePos) {
+        let _ = self.remove_impl(reg, at, false);
+    }
+
+    fn remove_impl(
+        &mut self,
+        reg: &ContentRegistry,
+        at: TilePos,
+        refund: bool,
+    ) -> Result<(), CommandError> {
         let id = self.grid.building(at).ok_or(CommandError::NothingThere)?;
         let b = self
             .buildings
@@ -823,9 +875,12 @@ impl World {
                 m
             }),
             KindTag::Battery => self.batteries.swap_remove(b.row).map(|(_, m)| m),
-            KindTag::Pipe | KindTag::CoolingTower | KindTag::HeatPipe | KindTag::Radiator => {
-                self.passive.swap_remove(b.row).map(|(_, m)| m)
-            }
+            KindTag::Pipe
+            | KindTag::CoolingTower
+            | KindTag::HeatPipe
+            | KindTag::Radiator
+            | KindTag::Wall => self.passive.swap_remove(b.row).map(|(_, m)| m),
+            KindTag::Turret => self.turrets.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Condenser => self.condensers.swap_remove(b.row).map(|(_, m)| m),
             KindTag::HeatEngine => self.engines.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Generator => self.generators.swap_remove(b.row).map(|(_, m)| m),
@@ -843,7 +898,9 @@ impl World {
             mb.row = b.row;
         }
         // возврат стоимости — после удаления из таблиц (сносимое ядро уже не получатель)
-        self.refund_cost(reg, b.block);
+        if refund {
+            self.refund_cost(reg, b.block);
+        }
         self.wake_adjacent_drills(&b);
         if let Some(seg) = old_segment {
             self.rebuild_conveyors_around(reg, at, &[seg]);
@@ -1087,7 +1144,7 @@ impl World {
                     behind: target.step(b.rot.opposite()) == from,
                 }
             }
-            KindTag::Crafter | KindTag::Core => Link::Building(id),
+            KindTag::Crafter | KindTag::Core | KindTag::Turret => Link::Building(id),
             KindTag::Splitter | KindTag::Sorter | KindTag::Bridge => {
                 let Some(side) = dir_between(target, from) else {
                     return Link::Refuses;
@@ -1106,7 +1163,8 @@ impl World {
             | KindTag::CoolingTower
             | KindTag::HeatPipe
             | KindTag::Radiator
-            | KindTag::HeatEngine => Link::Refuses,
+            | KindTag::HeatEngine
+            | KindTag::Wall => Link::Refuses,
         }
     }
 
@@ -1153,6 +1211,27 @@ impl World {
         };
         let row = b.row as usize;
         match b.tag {
+            KindTag::Turret => {
+                let BlockKind::Turret {
+                    ammo,
+                    shots_per_item,
+                    buffer,
+                    ..
+                } = reg.block(b.block).kind
+                else {
+                    return false;
+                };
+                let Some(t) = self.turrets.rows.get_mut(row) else {
+                    return false;
+                };
+                if item != ammo || t.ammo + shots_per_item > buffer * shots_per_item {
+                    return false;
+                }
+                t.ammo += shots_per_item;
+                // предмет становится боеприпасом
+                Stats::bump(&mut self.stats.consumed, item, 1);
+                true
+            }
             KindTag::Crafter => {
                 let BlockKind::Crafter { inputs, buffer, .. } = &reg.block(b.block).kind else {
                     return false;
@@ -1714,6 +1793,23 @@ impl World {
         put
     }
 
+    /// Заполнить все турели боеприпасами до предела (только бенчмарки и тесты).
+    pub fn debug_fill_turrets(&mut self, reg: &ContentRegistry) {
+        for (row, owner) in self.turrets.rows.iter_mut().zip(&self.turrets.owners) {
+            let Some(b) = self.buildings.get(*owner) else {
+                continue;
+            };
+            if let BlockKind::Turret {
+                shots_per_item,
+                buffer,
+                ..
+            } = reg.block(b.block).kind
+            {
+                row.ammo = shots_per_item * buffer;
+            }
+        }
+    }
+
     /// Проверка структурной целостности мира (после загрузки файла или в тестах).
     pub fn validate(&self, reg: &ContentRegistry) -> Result<(), String> {
         self.grid.validate()?;
@@ -1761,9 +1857,12 @@ impl World {
                     self.batteries.len(),
                     self.batteries.owners.get(b.row as usize),
                 ),
-                KindTag::Pipe | KindTag::CoolingTower | KindTag::HeatPipe | KindTag::Radiator => {
-                    (self.passive.len(), self.passive.owners.get(b.row as usize))
-                }
+                KindTag::Pipe
+                | KindTag::CoolingTower
+                | KindTag::HeatPipe
+                | KindTag::Radiator
+                | KindTag::Wall => (self.passive.len(), self.passive.owners.get(b.row as usize)),
+                KindTag::Turret => (self.turrets.len(), self.turrets.owners.get(b.row as usize)),
                 KindTag::Condenser => (
                     self.condensers.len(),
                     self.condensers.owners.get(b.row as usize),
@@ -1800,6 +1899,36 @@ impl World {
             if row.items.len() != self.item_count as usize {
                 return Err("core storage size mismatch".into());
             }
+        }
+        let u = &self.units;
+        if [
+            u.x.len(),
+            u.y.len(),
+            u.health.len(),
+            u.cooldown.len(),
+            u.vx.len(),
+            u.vy.len(),
+        ]
+        .iter()
+        .any(|&n| n != u.kind.len())
+        {
+            return Err("unit arrays out of sync".into());
+        }
+        if u.kind.iter().any(|k| usize::from(k.0) >= reg.units().len()) {
+            return Err("unknown unit type".into());
+        }
+        let p = &self.projectiles;
+        if [
+            p.y.len(),
+            p.vx.len(),
+            p.vy.len(),
+            p.damage.len(),
+            p.ttl.len(),
+        ]
+        .iter()
+        .any(|&n| n != p.x.len())
+        {
+            return Err("projectile arrays out of sync".into());
         }
         if self.timers.len() != TIMER_SLOTS {
             return Err("timer wheel size mismatch".into());
@@ -1933,6 +2062,13 @@ pub enum Detail {
         /// Выработка энергии за тик.
         output: u32,
     },
+    /// Турель.
+    Turret {
+        /// Выстрелов в запасе.
+        ammo: u32,
+    },
+    /// Стена.
+    Wall,
 }
 
 /// Результат осмотра постройки.
@@ -1944,6 +2080,10 @@ pub struct Inspection {
     pub origin: TilePos,
     /// Поворот.
     pub rot: Dir,
+    /// Прочность.
+    pub health: u32,
+    /// Максимальная прочность.
+    pub max_health: u32,
     /// Энергосеть постройки.
     pub power: Option<crate::power::PowerNet>,
     /// Тепловая сеть.
@@ -2040,6 +2180,10 @@ impl World {
                 | KindTag::HeatPipe
                 | KindTag::Radiator,
             ) => Detail::Network,
+            (_, KindTag::Turret) => Detail::Turret {
+                ammo: self.turrets.rows.get(row)?.ammo,
+            },
+            (_, KindTag::Wall) => Detail::Wall,
             (_, KindTag::HeatEngine) => Detail::HeatEngine {
                 output: self.engines.rows.get(row)?.output,
             },
@@ -2049,6 +2193,8 @@ impl World {
             block: b.block,
             origin: b.origin,
             rot: b.rot,
+            health: b.health,
+            max_health: def.health,
             heat: b
                 .heat_net
                 .and_then(|n| self.heat.nets.get(n as usize))

@@ -16,6 +16,10 @@ pub struct SpriteTable {
     /// UV ресурсов по ID.
     pub items: Vec<[f32; 4]>,
     blocks: Vec<[f32; 4]>,
+    units: Vec<[f32; 4]>,
+    projectile: [f32; 4],
+    barrel: [f32; 4],
+    white_uv: [f32; 4],
     /// Белый пиксель (для прямоугольников).
     pub white: SpriteId,
 }
@@ -46,6 +50,14 @@ impl SpriteTable {
                 .iter()
                 .map(|d| uv(format!("block:{}", d.name)))
                 .collect(),
+            units: reg
+                .units()
+                .iter()
+                .map(|d| uv(format!("unit:{}", d.name)))
+                .collect(),
+            projectile: uv("projectile".into()),
+            barrel: uv("turret_barrel".into()),
+            white_uv: atlas.uv(white),
             white,
         }
     }
@@ -67,6 +79,21 @@ pub struct Ghost {
     pub rot: Dir,
     /// Можно ли здесь строить.
     pub valid: bool,
+}
+
+/// Полоска прочности: тёмная подложка и цветная часть (зелёная → красная).
+fn health_bar(batch: &mut SpriteBatch, white: [f32; 4], c: [f32; 2], w: f32, hp: u32, max: u32) {
+    let k = (hp as f32 / max.max(1) as f32).clamp(0.0, 1.0);
+    let h = 0.09;
+    batch.push(white, c, [w, h], 0.0, [0.02, 0.02, 0.03, 0.85]);
+    let fill = [1.0 - k, 0.25 + 0.6 * k, 0.15, 1.0];
+    batch.push(
+        white,
+        [c[0] - w * (1.0 - k) / 2.0, c[1]],
+        [w * k, h],
+        0.0,
+        fill,
+    );
 }
 
 /// Поворот в четвертях оборота против часовой стрелки (спрайты нарисованы «вправо»).
@@ -203,6 +230,67 @@ pub fn build_world(
                 0.0,
                 WHITE,
             );
+        }
+    }
+
+    // юниты, снаряды, стволы турелей, полоски прочности
+    let sub = ferrustry_sim::combat::SUB as f32;
+    let white_uv = table.white_uv;
+    for (kind, x, y, hp) in world.units() {
+        let (fx, fy) = (x as f32 / sub, y as f32 / sub);
+        if !visible(fx, fy, 1.0) {
+            continue;
+        }
+        let def = reg.unit(kind);
+        let size = def.radius as f32 / sub * 2.4;
+        batch.push(
+            table.units[usize::from(kind.0)],
+            [fx, fy],
+            [size, size],
+            0.0,
+            WHITE,
+        );
+        if hp < def.health {
+            health_bar(
+                batch,
+                white_uv,
+                [fx, fy + size * 0.55],
+                size,
+                hp,
+                def.health,
+            );
+        }
+    }
+    for (_, b) in world.buildings().iter() {
+        let s = f32::from(b.size);
+        let c = [b.origin.x as f32 + s / 2.0, b.origin.y as f32 + s / 2.0];
+        if !visible(c[0], c[1], s) {
+            continue;
+        }
+        if let Some((ax, ay)) = world.turret_aim(b) {
+            let turns = if ax == 0 && ay == 0 {
+                0.0
+            } else {
+                (ay as f32).atan2(ax as f32) / std::f32::consts::FRAC_PI_2
+            };
+            batch.push(table.barrel, c, [s, s], turns, WHITE);
+        }
+        let max = reg.block(b.block).health;
+        if b.health() < max {
+            health_bar(
+                batch,
+                white_uv,
+                [c[0], c[1] + s * 0.5 + 0.12],
+                s * 0.9,
+                b.health(),
+                max,
+            );
+        }
+    }
+    for (x, y) in world.projectiles() {
+        let (fx, fy) = (x as f32 / sub, y as f32 / sub);
+        if visible(fx, fy, 0.5) {
+            batch.push(table.projectile, [fx, fy], [0.25, 0.25], 0.0, WHITE);
         }
     }
 
