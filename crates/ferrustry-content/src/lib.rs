@@ -472,6 +472,10 @@ pub enum BlockKind {
     },
 }
 
+/// Сколько разных предметов может быть на входе и на выходе рецепта: буферы производства
+/// хранятся в строке таблицы без указателей (P-04).
+pub const MAX_RECIPE_SLOTS: usize = 4;
+
 /// Тип постройки.
 #[derive(Debug, Clone)]
 pub struct BlockDef {
@@ -776,6 +780,16 @@ impl ContentRegistry {
                             path: p("outputs"),
                             reason: "recipe must produce something".into(),
                         });
+                    }
+                    for (list, f) in [(&inputs, "inputs"), (&outputs, "outputs")] {
+                        if list.len() > MAX_RECIPE_SLOTS {
+                            return Err(ContentError::Invalid {
+                                path: p(f),
+                                reason: format!(
+                                    "at most {MAX_RECIPE_SLOTS} different items per recipe side"
+                                ),
+                            });
+                        }
                     }
                     for stack in inputs.iter().chain(&outputs) {
                         if stack.count > buffer {
@@ -1227,6 +1241,15 @@ mod tests {
             let err = ContentRegistry::from_ron(&BASE_CONTENT.replace(from, to)).unwrap_err();
             assert!(err.to_string().contains(needle), "{err}");
         }
+    }
+
+    #[test]
+    fn recipe_slots_are_limited() {
+        let from = r#"inputs: [("iron_ore", 2)],"#;
+        assert_eq!(BASE_CONTENT.matches(from).count(), 1);
+        let five = r#"inputs: [("iron_ore", 1), ("carbon", 1), ("steel", 1), ("iron_ingot", 1), ("iron_ore", 1)],"#;
+        let err = ContentRegistry::from_ron(&BASE_CONTENT.replace(from, five)).unwrap_err();
+        assert!(err.to_string().contains("at most 4"), "{err}");
     }
 
     #[test]

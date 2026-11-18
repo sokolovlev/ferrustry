@@ -56,7 +56,7 @@ scripts/check.sh                                                # все про�
 | `Bridge` | `range` тайлов, `interval` тиков на предмет, `buffer` | size 1; все > 0 |
 | `Depot` | `capacity` — всего предметов | capacity > 0; size ≤ 8 |
 | `Drill` | `base_ticks` — тиков на предмет при руде под всеми тайлами; `buffer` | > 0 |
-| `Crafter` | `inputs`, `outputs` — списки `("предмет", n)`; `craft_ticks`; `power_use` за тик (0 — без энергии); `buffer`; тепло: `heat` за тик работы (по умолчанию 0), `cooling` пассивное (0), `heat_capacity` (100) | outputs не пуст; buffer ≥ любого n в рецепте |
+| `Crafter` | `inputs`, `outputs` — списки `("предмет", n)`; `craft_ticks`; `power_use` за тик (0 — без энергии); `buffer`; тепло: `heat` за тик работы (по умолчанию 0), `cooling` пассивное (0), `heat_capacity` (100) | outputs не пуст; не больше 4 разных предметов на сторону; buffer ≥ любого n в рецепте |
 | `Core` | `capacity` — каждого предмета | > 0 |
 | `Generator` | `power` за тик; необязательно: `fuel: Some("предмет")`, `burn_ticks`, `buffer` | power > 0; с топливом burn_ticks и buffer > 0 |
 | `PowerNode` | `range` тайлов | > 0 |

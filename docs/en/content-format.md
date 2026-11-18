@@ -56,7 +56,7 @@ scripts/check.sh                                                # all checks
 | `Bridge` | `range` in tiles, `interval` ticks per item, `buffer` | size 1; all > 0 |
 | `Depot` | `capacity` — items in total | capacity > 0; size ≤ 8 |
 | `Drill` | `base_ticks` — ticks per item with ore under every tile; `buffer` | > 0 |
-| `Crafter` | `inputs`, `outputs` — lists of `("item", n)`; `craft_ticks`; `power_use` per tick (0 — no power); `buffer`; heat: `heat` per working tick (default 0), passive `cooling` (0), `heat_capacity` (100) | outputs not empty; buffer ≥ any n in the recipe |
+| `Crafter` | `inputs`, `outputs` — lists of `("item", n)`; `craft_ticks`; `power_use` per tick (0 — no power); `buffer`; heat: `heat` per working tick (default 0), passive `cooling` (0), `heat_capacity` (100) | outputs not empty; at most 4 different items per side; buffer ≥ any n in the recipe |
 | `Core` | `capacity` — of each item | > 0 |
 | `Generator` | `power` per tick; optional: `fuel: Some("item")`, `burn_ticks`, `buffer` | power > 0; with fuel, burn_ticks and buffer > 0 |
 | `PowerNode` | `range` in tiles | > 0 |

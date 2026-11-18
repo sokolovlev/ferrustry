@@ -105,7 +105,7 @@ Limitation: belts and drills blocked by crafters and cores don't sleep yet — t
 | P-01 (**Done**) | Precise wake-up on side insertion: a branch sleeps until a gap appears at the insertion point on the target belt | The main remainder of B2-comb: ~12k segments awake doing nothing | B2-comb-100k: awake segments ≤ 10%, differential test green |
 | P-02 (**Partial**: drills; crafters — no) | Sleeping drills and crafters with a full buffer and all receivers refusing | Jammed drills stop ticking | Same |
 | P-03 | Segment arena: hot fields (head, len, compressed, tail, speed) in a separate dense array; items of all segments in one pool | Fewer cache misses per segment | cachegrind: D1 misses per awake segment ↓ |
-| P-04 | Building tables in SoA, narrow buffer types | Denser pass over drills/crafters | B3: tick time ↓ |
+| P-04 (**Partial** 2026-11-18: crafters and drills) | Building tables in SoA, narrow buffer types | Denser pass over drills/crafters | B3: tick time ↓ — −14% (10k) and −22% (100k), L1 misses −38% |
 | P-05 | Bounds check elimination in hot loops | −10% instructions in B2-comb | callgrind |
 | P-06 (**Investigated** 2026-11-18, see section 8; implementation awaits D-17) | Parallel processing | Scaling across cores | B3 on 4/8 cores, determinism in CI |
 | P-07 (**Done**: B3) | B3 "megabase" scenario: production + logistics + power | A realistic target for P-01…P-06 | Report in `docs/benchmarks/results/` |
@@ -156,6 +156,37 @@ This is a large rework of world storage (building identifiers, commands, saves, 
 the future network), so it is put up as decision D-17. Expectation from the measurements: up to ~3× on large
 bases on 4 cores; no change on bases under ~10k belts.
 
-Until D-17 is decided, **P-04** is cheaper and useful under either outcome: the crafters' demand
+**Measurements on the owner's PC** (i3-8350K, 4 cores / 4 threads, 8 MB L3, Windows 10):
+
+| Measurement | Cloud VM | Owner's PC |
+|---|---|---|
+| Ceiling, 4 threads with their own data | 3.1–4.1× | **2.6×** (2 threads — 1.7×) |
+| Pool call right after the previous one | 14–20 µs | **7 µs** |
+| Pool call after 100 µs of work | 63–92 µs | **13 µs** |
+| Pool call after 600 µs of work | 63–92 µs | **43 µs** |
+
+On real hardware the pool wakes 2–7 times cheaper, but the ceiling is lower too (all cores share an
+8 MB L3). Fine-grained phase parallelism is still bounded by Amdahl's law here (~1.5× with a ~50%
+parallel share) — not recommended. The options for D-17 are in decisions.md.
+
+Before deciding D-17, **P-04** was done (2026-11-18). Before it: the crafters' demand
 calculation is bound by memory latency (recipe inputs and outputs are separate heap `Vec`s, ~30 ns per
 crafter), and dense pointer-free rows speed up both a single thread and future regions.
+
+**P-04 result (crafters and drills):** the hot loops read only a dense table row. Recipe buffers
+are arrays in the row instead of a heap `Vec` (a recipe has up to 4 items per side, checked by the
+content validator). Rows hold copies of what used to be read from the large building record and the
+registry: building kind, power network, heat network, drill constants; `World::validate` checks the
+copies against the source. Drills find their row through a "slot → row" scratch table rebuilt when
+the topology changes. Behaviour did not change — the fingerprint
+(`examples/behaviour_fingerprint.rs`) matches on 10k and 100k up to 9000 ticks.
+
+| B3 | Before | After | Change |
+|---|---|---|---|
+| Instructions/tick, 10k / 100k | 379,670 / 3,763,883 | 334,806 / 3,319,853 | −11.8% |
+| L1 data misses/tick, 100k | 137,548 | 85,459 | **−37.9%** |
+| Tick time, median of 5 runs, 10k / 100k | 26.7 / 613 µs | 23.0 / 480 µs | **−14% / −22%** |
+
+Next for P-04: the "belt → building" link can carry the receiver's row number (it changes only on
+removal, which already resets the link cache), so handing an item to a crafter or a core will not
+read the building record either.

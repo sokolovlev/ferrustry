@@ -347,6 +347,7 @@ impl World {
         }
         if self.heat.dirty {
             self.rebuild_nets(reg, NetKind::Heat);
+            self.sync_crafter_nets();
         }
     }
 

@@ -155,6 +155,7 @@ impl World {
             }
         }
         self.power.dirty = false;
+        self.sync_crafter_nets();
     }
 
     pub(crate) fn balance_power(&mut self, reg: &ContentRegistry) {
@@ -240,17 +241,15 @@ impl World {
                 net.demand += u64::from(power_use);
             }
         }
-        for (row, owner) in self.crafters.rows.iter().zip(&self.crafters.owners) {
-            let Some(b) = self.buildings.get(*owner) else {
+        // производства: всё нужное — в плотной строке, без обращения к постройке (P-04)
+        for row in &self.crafters.rows {
+            let BlockKind::Crafter { power_use, .. } = reg.block(row.block).kind else {
                 continue;
             };
-            let BlockKind::Crafter { power_use, .. } = reg.block(b.block).kind else {
-                continue;
-            };
-            if power_use == 0 || !World::crafter_ready(reg, b.block, row) {
+            if power_use == 0 || !World::crafter_ready(reg, row.block, row) {
                 continue;
             }
-            if let Some(net) = b
+            if let Some(net) = row
                 .power_net
                 .and_then(|n| self.power.nets.get_mut(n as usize))
             {

@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ferrustry_content::{BlockId, BlockKind, ContentRegistry, FloorId, ItemId, OreId};
+use ferrustry_content::{
+    BlockId, BlockKind, ContentRegistry, FloorId, ItemId, MAX_RECIPE_SLOTS, OreId,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::buildings::{Arena, Building, BuildingId, KindTag, Table};
@@ -148,12 +150,22 @@ pub(crate) struct DrillRow {
     pub(crate) ore_tiles: u32,
     pub(crate) progress: u32,
     pub(crate) buffer: u32,
+    /// Прогресс на один предмет (`base_ticks × площадь`) и ёмкость буфера — копии из контента,
+    /// чтобы тик бура не обращался к постройке и реестру (P-04).
+    pub(crate) threshold: u32,
+    pub(crate) cap: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CrafterRow {
-    pub(crate) inputs: Vec<u32>,
-    pub(crate) outputs: Vec<u32>,
+    /// Вид постройки (копия `Building::block`: горячие циклы читают только строку, P-04).
+    pub(crate) block: BlockId,
+    /// Энергосеть и тепловая сеть (копии из `Building`, обновляются при перестройке сетей).
+    pub(crate) power_net: Option<u32>,
+    pub(crate) heat_net: Option<u32>,
+    /// Входной и выходной буферы по слотам рецепта; лишние слоты всегда 0.
+    pub(crate) inputs: [u32; MAX_RECIPE_SLOTS],
+    pub(crate) outputs: [u32; MAX_RECIPE_SLOTS],
     /// Прогресс в тысячных долях тика при полной энергии.
     pub(crate) progress: u64,
     /// Дробная часть выделенного тепла, тысячные (без потерь при замедлении).
@@ -229,6 +241,9 @@ pub struct World {
     pub(crate) kills: u64,
     #[serde(skip)]
     pub(crate) unit_grid: crate::combat::Scratch<crate::combat::UnitGrid>,
+    /// «Ячейка арены → строка бура» с эпохой топологии, для которой построена (служебное).
+    #[serde(skip)]
+    pub(crate) drill_rows: crate::combat::Scratch<(u64, Vec<u32>)>,
     /// Эталонный режим: поле путей всегда перестраивается целиком (бенчмарки, тесты).
     #[serde(skip)]
     pub(crate) flow_full_only: bool,
@@ -346,6 +361,7 @@ impl World {
             unit_remap: Default::default(),
             flow_scratch: Default::default(),
             flow_full_only: false,
+            drill_rows: Default::default(),
             rules: Rules::default(),
             segments: Vec::new(),
             free_segments: Vec::new(),
@@ -718,7 +734,7 @@ impl World {
                     index: 0,
                 },
             ),
-            BlockKind::Drill { .. } => {
+            &BlockKind::Drill { base_ticks, buffer } => {
                 let (item, ore_tiles) = self.ore_under(reg, origin, def.size);
                 self.drills.push(
                     id,
@@ -727,16 +743,19 @@ impl World {
                         ore_tiles,
                         progress: 0,
                         buffer: 0,
+                        threshold: base_ticks * u32::from(def.size) * u32::from(def.size),
+                        cap: buffer,
                     },
                 )
             }
-            BlockKind::Crafter {
-                inputs, outputs, ..
-            } => self.crafters.push(
+            BlockKind::Crafter { .. } => self.crafters.push(
                 id,
                 CrafterRow {
-                    inputs: vec![0; inputs.len()],
-                    outputs: vec![0; outputs.len()],
+                    block,
+                    power_net: None,
+                    heat_net: None,
+                    inputs: [0; MAX_RECIPE_SLOTS],
+                    outputs: [0; MAX_RECIPE_SLOTS],
                     progress: 0,
                     heat_acc: 0,
                 },
@@ -1464,26 +1483,36 @@ impl World {
         }
     }
 
+    /// Таблица «ячейка арены → строка бура» (служебная, пересобирается при смене топологии):
+    /// тик бура не читает саму постройку (P-04).
+    fn drill_row_of_slot(&mut self, slot: usize) -> Option<usize> {
+        let epoch = self.topo_epoch;
+        let map = &mut self.drill_rows.0;
+        if map.0 != epoch {
+            map.1.clear();
+            map.1.resize(self.buildings.slot_count(), u32::MAX);
+            for (r, owner) in self.drills.owners.iter().enumerate() {
+                if let Some(v) = map.1.get_mut(Arena::slot_index(*owner)) {
+                    *v = r as u32;
+                }
+            }
+            map.0 = epoch;
+        }
+        map.1
+            .get(slot)
+            .copied()
+            .filter(|&r| r != u32::MAX)
+            .map(|r| r as usize)
+    }
+
     fn update_drill(&mut self, reg: &ContentRegistry, slot: usize) {
-        let Some(owner) = self.buildings.id_at(slot) else {
+        let Some(r) = self.drill_row_of_slot(slot) else {
             self.sleep_drill(slot);
             return;
         };
-        let Some(b) = self.buildings.get(owner) else {
-            return;
-        };
-        let (KindTag::Drill, BlockKind::Drill { base_ticks, buffer }) =
-            (b.tag, &reg.block(b.block).kind)
-        else {
-            self.sleep_drill(slot);
-            return;
-        };
-        let (base_ticks, cap) = (*base_ticks, *buffer);
-        let r = b.row as usize;
-        let threshold = base_ticks * u32::from(b.size) * u32::from(b.size);
-        let Some(row) = self.drills.rows.get_mut(r) else {
-            return;
-        };
+        let owner = self.drills.owners[r];
+        let row = &mut self.drills.rows[r];
+        let (threshold, cap) = (row.threshold, row.cap);
         let Some(item) = row.item else {
             // руды под буром нет — работать он не начнёт никогда
             self.sleep_drill(slot);
@@ -1548,15 +1577,21 @@ impl World {
                 .all(|(s, &n)| n + s.count <= *buffer)
     }
 
+    /// Обновить копии сетей в строках производств (после перестройки энергосетей или тепла).
+    pub(crate) fn sync_crafter_nets(&mut self) {
+        for (row, owner) in self.crafters.rows.iter_mut().zip(&self.crafters.owners) {
+            if let Some(b) = self.buildings.get(*owner) {
+                row.power_net = b.power_net;
+                row.heat_net = b.heat_net;
+            }
+        }
+    }
+
     fn update_crafters(&mut self, reg: &ContentRegistry) {
         for r in 0..self.crafters.len() {
             let owner = self.crafters.owners[r];
-            let Some(b) = self.buildings.get(owner) else {
-                continue;
-            };
-            let block = b.block;
-            let net = b.power_net;
-            let heat_net = b.heat_net;
+            let row = &self.crafters.rows[r];
+            let (block, net, heat_net) = (row.block, row.power_net, row.heat_net);
             let BlockKind::Crafter {
                 inputs,
                 outputs,
@@ -2014,6 +2049,14 @@ impl World {
             {
                 return Err("power net out of range".into());
             }
+            if let (KindTag::Drill, &BlockKind::Drill { base_ticks, buffer }) = (b.tag, &def.kind) {
+                let row = &self.drills.rows[b.row as usize];
+                if row.threshold != base_ticks * u32::from(b.size) * u32::from(b.size)
+                    || row.cap != buffer
+                {
+                    return Err("drill row copies differ from the content".into());
+                }
+            }
             if b.tag == KindTag::Crafter {
                 let BlockKind::Crafter {
                     inputs, outputs, ..
@@ -2022,8 +2065,16 @@ impl World {
                     return Err("crafter kind mismatch".into());
                 };
                 let row = &self.crafters.rows[b.row as usize];
-                if row.inputs.len() != inputs.len() || row.outputs.len() != outputs.len() {
+                if row.inputs[inputs.len()..].iter().any(|&n| n != 0)
+                    || row.outputs[outputs.len()..].iter().any(|&n| n != 0)
+                {
                     return Err("crafter buffers mismatch".into());
+                }
+                if row.block != b.block
+                    || row.power_net != b.power_net
+                    || row.heat_net != b.heat_net
+                {
+                    return Err("crafter row copies differ from the building".into());
                 }
             }
         }

@@ -5,11 +5,19 @@
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0,
 saves are incompatible between minor versions (the game reports a format version mismatch).
 
-## Unreleased
+## 0.6.0 — 2026-11-18
+
+Save format 6.0.
+
+### Changed
+- **The simulation is 14–22% faster** (megabase 10k / 100k) with the same behaviour: crafters and
+  drills keep everything the tick needs in a dense table row (P-04). A recipe has at most 4 different
+  items on each side (checked by the content validator).
 
 ### Added
-- Multithreading measurement tools: `parallel_ceiling` and `fork_join_cost` (examples in
-  `ferrustry-headless`). The P-06 investigation and proposal D-17 (a world of regions) are in the docs.
+- Measurement tools: `parallel_ceiling`, `fork_join_cost` (multithreading) and
+  `behaviour_fingerprint` (behaviour unchanged after a refactor) — examples in
+  `ferrustry-headless`. The P-06 investigation and the options for decision D-17 are in the docs.
 
 ## 0.5.0 — 2026-11-18
 

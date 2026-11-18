@@ -269,3 +269,17 @@ Running on your PC:
 cargo run --release -p ferrustry-headless --example parallel_ceiling -- 100000
 cargo run --release -p ferrustry-headless --example fork_join_cost
 ```
+
+### 2026-11-18 — measurements on the owner's PC and P-04
+
+Owner's PC (i3-8350K, Windows 10): the `parallel_ceiling` B3-100k ceiling is 637 / 373 / 245 µs on
+1 / 2 / 4 threads (**2.6×**); `fork_join_cost` — 7 / 13 / 43 µs after 0 / 100 / 600 µs of work.
+Analysis: `docs/en/performance-design.md`, section 8.
+
+P-04 (dense crafter and drill rows), cloud VM, behaviour unchanged (fingerprint):
+
+| B3 | Before | After |
+|---|---|---|
+| Instructions/tick, 10k / 100k | 379,670 / 3,763,883 | 334,806 / 3,319,853 (−11.8%) |
+| L1 data misses/tick, 100k | 137,548 | 85,459 (−37.9%) |
+| Tick time (median of 5 alternating runs), 10k / 100k | 26.7 / 613 µs | 23.0 / 480 µs (−14% / −22%) |

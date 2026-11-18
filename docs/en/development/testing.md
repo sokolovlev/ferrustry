@@ -68,3 +68,6 @@ must be updated (the comments next to them explain the calculation).
 - Allocations per tick and peak memory are in the `bench` output (`allocations_per_tick`, `peak_rss_kib`).
 - Multithreading: `--example parallel_ceiling` (the speed-up ceiling with data ownership) and
   `--example fork_join_cost` (the cost of a thread pool call) in `ferrustry-headless`.
+- Data layout refactors: `--example behaviour_fingerprint` prints a fingerprint of B3's observable
+  behaviour (through the public API, independent of the save format). Build it on the old and the
+  new version — the output must match.
