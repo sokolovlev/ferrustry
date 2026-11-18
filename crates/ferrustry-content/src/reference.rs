@@ -515,7 +515,10 @@ mod tests {
                 std::fs::write(&path, &fresh).unwrap();
                 continue;
             }
-            let committed = std::fs::read_to_string(&path).unwrap_or_default();
+            // git на Windows может выдать файл с CRLF: сравниваем текст, а не концы строк
+            let committed = std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .replace("\r\n", "\n");
             assert!(
                 committed == fresh,
                 "{} is stale: run `FERRUSTRY_BLESS=1 cargo test -p ferrustry-content reference`",
