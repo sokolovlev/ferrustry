@@ -5,6 +5,12 @@
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0,
 saves are incompatible between minor versions (the game reports a format version mismatch).
 
+## Unreleased
+
+### Added
+- Multithreading measurement tools: `parallel_ceiling` and `fork_join_cost` (examples in
+  `ferrustry-headless`). The P-06 investigation and proposal D-17 (a world of regions) are in the docs.
+
 ## 0.5.0 — 2026-11-18
 
 Save format 5.0.

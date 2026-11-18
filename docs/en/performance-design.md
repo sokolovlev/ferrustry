@@ -19,7 +19,7 @@ visits things that don't change.
 | 2. Memory access | One cache miss per unit of work | **Link cache** segment→receiver and drill→receivers by topology epoch; bitset of active segments | Segment arena + hot fields in SoA (P-03) |
 | 3. Data layout | Dense arrays of narrow types | **Item+gap in one `u32`**, a linear window of exact capacity, no ring indices | `u16`/`u8` for building buffers; SoA for building tables (P-04) |
 | 4. Registers and SIMD | Hot loop without calls, branches or bounds checks | Position search in blocks of 16 gaps (auto-vectorization) | Bounds check elimination (P-05); explicit SIMD (D-15) |
-| 5. Parallelism | Independent islands on different cores, deterministically | — | Splitting logistics into islands + two-phase transfer (P-06) |
+| 5. Parallelism | Each thread owns its part of the world, one synchronization per tick | Measurements: the ceiling and the pool cost (section 8) | A world of regions (D-17) |
 | 6. Build | LTO, PGO, target CPU | **AVX2 baseline** (`.cargo/config.toml`, CPU check at startup); LTO on the VM is below noise | LTO/PGO — measure on the owner's PC |
 
 ## 2. "Processing in registers" — what it means for Rust
@@ -107,8 +107,55 @@ Limitation: belts and drills blocked by crafters and cores don't sleep yet — t
 | P-03 | Segment arena: hot fields (head, len, compressed, tail, speed) in a separate dense array; items of all segments in one pool | Fewer cache misses per segment | cachegrind: D1 misses per awake segment ↓ |
 | P-04 | Building tables in SoA, narrow buffer types | Denser pass over drills/crafters | B3: tick time ↓ |
 | P-05 | Bounds check elimination in hot loops | −10% instructions in B2-comb | callgrind |
-| P-06 | Parallel processing of logistics islands | Scaling across cores | B3 on 4/8 cores, determinism in CI |
+| P-06 (**Investigated** 2026-11-18, see section 8; implementation awaits D-17) | Parallel processing | Scaling across cores | B3 on 4/8 cores, determinism in CI |
 | P-07 (**Done**: B3) | B3 "megabase" scenario: production + logistics + power | A realistic target for P-01…P-06 | Report in `docs/benchmarks/results/` |
 | P-09 (**closed: false alarm**) | The suspected B2-comb regression turned out to be an error in the earlier measurement; re-measured: a1dd7ad 237,923, 93ae603 237,299 instructions/tick | — | — |
 | P-10 (**Done** 2026-11-18: B5 max 172–410 µs, +7.3% kills) | Turrets: don't shoot a target that projectiles in flight will already kill ("overkill"); incremental flow field instead of a full Dijkstra on every build | Defence efficiency; remove the ~1.5 ms spike | B5: max tick < 500 µs |
 | P-08 | Performance regression control in CI (comparison with the previous commit by callgrind instructions — independent of VM noise) | Protection against degradation | +5% instructions threshold → warning |
+
+## 8. Parallelism: what the measurements showed (P-06, 2026-11-18)
+
+**Where the tick goes** (B3, share of time per system, 10k / 100k): belts 44% / 36%, drills 23% / 24%,
+crafters and heat 19% / 22%, power and timers 15% / 18%. Parallelizing belts alone gives at most
+1.4× on 4 cores; every system has to be split.
+
+**The ceiling** (`examples/parallel_ceiling.rs`): B3-100k split into 4 independent bases of 25k,
+one per thread with one synchronization per tick — **3.1–4.1×** on the cloud VM (4 vCPU). Memory
+did not become the bottleneck: smaller pieces fit the cache better.
+
+**The fine-grained approach was tried and rejected.** The plan was "two phases inside each system":
+each element's own work in parallel, then the exchange with neighbours sequentially. As a first step,
+the crafters' power demand was parallelized (5,000 crafters; bit-identical result). Outcome: the phase
+became **slower** — 115–149 µs on one thread versus 165–173 µs on four. The causes were measured
+(`examples/fork_join_cost.rs`):
+
+| One parallel pool call (8192 simple operations) | Right after the previous one | After 100–600 µs of sequential work |
+|---|---|---|
+| Pool of 4 threads | 14–20 µs | **63–92 µs** |
+| Pool of 1 thread | 13 µs | 25–32 µs |
+
+Between tick phases the pool's threads fall asleep, and every parallel call pays for waking them
+(tens of µs on the VM) — as much as the phase's entire work. On top of that, the next sequential phase
+pulls rows processed on another core back from that core's cache. The code was rolled back.
+
+**What works** is what the ceiling showed: a thread permanently **owns** its part of the world, with
+one synchronization per tick. For the engine this means **a world of regions**:
+
+- the map is split into regions (rectangular blocks of chunks); a building belongs to the region of its
+  corner; a region has its own tables, belt segments, buffers;
+- the tick: all regions in parallel (thread ↔ region pinned, data does not migrate), then
+  sequentially in a fixed order — exchange across borders: an item that left a belt into a
+  neighbouring region sits in the border's "mailbox" and is accepted at the start of the next tick
+  (a one-tick delay only at borders; deterministic for any number of threads);
+- power and heat networks that cross borders: regions compute partial sums, the network is
+  reduced after the phase (integer sums — order does not matter);
+- the core accepts items from other regions through the same mailbox;
+- combat stays global and sequential for now; small worlds are one region, without threads.
+
+This is a large rework of world storage (building identifiers, commands, saves, rendering,
+the future network), so it is put up as decision D-17. Expectation from the measurements: up to ~3× on large
+bases on 4 cores; no change on bases under ~10k belts.
+
+Until D-17 is decided, **P-04** is cheaper and useful under either outcome: the crafters' demand
+calculation is bound by memory latency (recipe inputs and outputs are separate heap `Vec`s, ~30 ns per
+crafter), and dense pointer-free rows speed up both a single thread and future regions.

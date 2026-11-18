@@ -252,3 +252,20 @@ Cloud VM, 1000 enemies against 300 turrets, the first 1500 ticks with no warm-up
 - The max spike in B5 was the first field build inside a tick. Now the field is built when the
   map is created (`World::prepare_flow`; 1.6 ms once, outside the tick) and only repaired afterwards.
 - The economy is unaffected: B3 10k — 379,643 → 379,658 instructions/tick.
+
+### 2026-11-18 — P-06: the multithreading ceiling and the pool cost
+
+Cloud VM, 4 vCPU. Detailed analysis and conclusion: `docs/en/performance-design.md`, section 8.
+
+| Measurement | Result |
+|---|---|
+| B3-100k as 1 / 2 / 4 independent bases in their own threads (`parallel_ceiling`) | 587 / 415 / 187 µs per tick of the whole base — **3.1×** on 4 threads (up to 4.1× in other runs) |
+| One rayon pool call after 100–600 µs of sequential work (`fork_join_cost`) | 63–92 µs (right after the previous one — 14–20 µs) |
+| Crafters' power demand, B3-100k: 1 thread → 4 threads | 115–149 → 165–173 µs — **slower**, code rolled back |
+
+Running on your PC:
+
+```bash
+cargo run --release -p ferrustry-headless --example parallel_ceiling -- 100000
+cargo run --release -p ferrustry-headless --example fork_join_cost
+```

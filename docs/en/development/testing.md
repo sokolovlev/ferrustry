@@ -66,3 +66,5 @@ must be updated (the comments next to them explain the calculation).
   Compare against the previous commit built in a separate worktree. Results go into
   [docs/en/performance.md](../performance.md).
 - Allocations per tick and peak memory are in the `bench` output (`allocations_per_tick`, `peak_rss_kib`).
+- Multithreading: `--example parallel_ceiling` (the speed-up ceiling with data ownership) and
+  `--example fork_join_cost` (the cost of a thread pool call) in `ferrustry-headless`.

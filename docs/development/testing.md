@@ -66,3 +66,5 @@
   Сравнивайте с предыдущим коммитом, собранным в отдельном worktree. Результаты — в
   [docs/performance.md](../performance.md).
 - Аллокации на тик и пиковая память — в выводе `bench` (`allocations_per_tick`, `peak_rss_kib`).
+- Многопоточность: `--example parallel_ceiling` (потолок ускорения при владении данными) и
+  `--example fork_join_cost` (цена вызова пула потоков) в `ferrustry-headless`.
