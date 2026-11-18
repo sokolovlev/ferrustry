@@ -24,6 +24,13 @@
         // броня 8: пушечный снаряд (12) наносит лишь 4; дуговая турель броню игнорирует
         (name: "shellback", health: 320, speed: 8, damage: 30, cooldown: 40, radius: 130, armor: 8),
     ],
+    // состав волн: с волны from_wave приходит count врагов, каждые every волн — ещё grow
+    waves: [
+        (unit: "crawler", from_wave: 1, count: 5, grow: 2, every: 1),
+        (unit: "brute", from_wave: 2, count: 1, grow: 1, every: 2),
+        (unit: "spitter", from_wave: 3, count: 1, grow: 1, every: 2),
+        (unit: "shellback", from_wave: 6, count: 1, grow: 1, every: 2),
+    ],
     ores: [
         (name: "iron_vein", item: "iron_ore"),
         (name: "carbon_seam", item: "carbon"),

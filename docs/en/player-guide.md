@@ -116,22 +116,17 @@ Enemies appear at the map edges on a timer (in the corner of the screen: `WAVE N
 nearest core along the cheapest path. Each building on the way "costs" more the stronger it is, so enemies
 **go around** walls if the detour isn't too long and **break through** them if there's no other way.
 
-Composition of wave number N:
-
-| Enemy | Count | From wave |
-|---|---|---|
-| Crawler (`crawler`) | 3 + 2·N | 1 |
-| Brute (`brute`) | N / 2 | 2 |
-| Spitter (`spitter`) | (N − 1) / 2 | 3 |
-| Shellback (`shellback`) | (N − 4) / 2 | 6 |
+Each wave brings more enemies, and later waves bring new kinds. How many enemies of which kind come
+in each wave is in the "Waves" section of the [content reference](content-reference.md#waves); the
+composition is defined by the game data and may change as the balance is tuned.
 
 ### Enemies
 
-- The **crawler** is fast and weak, and attacks in melee.
-- The **brute** is slow and tough, with a heavy hit.
-- The **spitter** stops 4 tiles from the nearest building and shoots at it. Walls don't
+- The **crawler** (`crawler`) is fast and weak, and attacks in melee.
+- The **brute** (`brute`) is slow and tough, with a heavy hit.
+- The **spitter** (`spitter`) stops 4 tiles from the nearest building and shoots at it. Walls don't
   hold it back — you need a turret that reaches further than 4 tiles (the gun turret has a range of 9).
-- The **shellback** has armor 8: a gun turret shell (12 damage) deals it only 4. Armor never reduces
+- The **shellback** (`shellback`) has armor 8: a gun turret shell (12 damage) deals it only 4. Armor never reduces
   damage below a third of the original.
 
 ### Turrets and walls

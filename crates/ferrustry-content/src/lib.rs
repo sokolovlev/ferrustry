@@ -94,6 +94,8 @@ struct RawContent {
     fluids: Vec<RawItem>,
     #[serde(default)]
     units: Vec<RawUnit>,
+    #[serde(default)]
+    waves: Vec<RawWave>,
     ores: Vec<RawOre>,
     blocks: Vec<RawBlock>,
 }
@@ -149,6 +151,22 @@ struct RawUnit {
     /// Скорость снаряда дальнобойного юнита, 1/256 тайла за тик.
     #[serde(default)]
     projectile_speed: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWave {
+    unit: String,
+    from_wave: u32,
+    count: u32,
+    #[serde(default)]
+    grow: u32,
+    #[serde(default = "default_every")]
+    every: u32,
+}
+
+fn default_every() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -498,6 +516,33 @@ pub struct UnitDef {
     pub projectile_speed: u32,
 }
 
+/// Правило состава волн: с волны `from_wave` приходит `count` врагов вида `unit`, и их
+/// становится на `grow` больше каждые `every` волн.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaveRule {
+    /// Вид врага.
+    pub unit: UnitTypeId,
+    /// Первая волна (с 1), в которой он появляется.
+    pub from_wave: u32,
+    /// Сколько их в первой волне.
+    pub count: u32,
+    /// Прирост.
+    pub grow: u32,
+    /// Каждые сколько волн прирост.
+    pub every: u32,
+}
+
+impl WaveRule {
+    /// Сколько врагов этого вида в волне `n` (с 1).
+    pub fn count_in(&self, n: u32) -> u32 {
+        if n < self.from_wave {
+            return 0;
+        }
+        let steps = (n - self.from_wave) / self.every.max(1);
+        self.count.saturating_add(self.grow.saturating_mul(steps))
+    }
+}
+
 impl BlockDef {
     /// Участвует ли постройка в энергосети.
     pub fn is_power(&self) -> bool {
@@ -549,6 +594,7 @@ pub struct ContentRegistry {
     blocks: Vec<BlockDef>,
     units: Vec<UnitDef>,
     unit_names: HashMap<String, UnitTypeId>,
+    waves: Vec<WaveRule>,
     fluids: Vec<FluidDef>,
     fluid_names: HashMap<String, FluidId>,
     floor_names: HashMap<String, FloorId>,
@@ -963,6 +1009,26 @@ impl ContentRegistry {
             });
         }
 
+        let mut waves = Vec::with_capacity(raw.waves.len());
+        for (i, w) in raw.waves.iter().enumerate() {
+            let p = |f: &str| format!("waves[{i}].{f}");
+            positive(w.from_wave, || p("from_wave"))?;
+            positive(w.every, || p("every"))?;
+            if w.count == 0 && w.grow == 0 {
+                return Err(ContentError::Invalid {
+                    path: p("count"),
+                    reason: "a wave rule with count 0 and grow 0 never spawns anything".into(),
+                });
+            }
+            waves.push(WaveRule {
+                unit: resolve(&unit_names, &w.unit, "unit", || p("unit"))?,
+                from_wave: w.from_wave,
+                count: w.count,
+                grow: w.grow,
+                every: w.every,
+            });
+        }
+
         Ok(Self {
             floors,
             items,
@@ -970,6 +1036,7 @@ impl ContentRegistry {
             blocks,
             units,
             unit_names,
+            waves,
             fluids,
             fluid_names,
             floor_names,
@@ -1033,6 +1100,11 @@ impl ContentRegistry {
     /// Все типы юнитов в порядке ID.
     pub fn units(&self) -> &[UnitDef] {
         &self.units
+    }
+
+    /// Правила состава волн в порядке файла контента.
+    pub fn waves(&self) -> &[WaveRule] {
+        &self.waves
     }
 
     /// Тип юнита. Паникует, если ID получен не из этого реестра.
@@ -1130,6 +1202,44 @@ mod tests {
         let text = BASE_CONTENT.replace("speed: 16", "speed: 0");
         let err = ContentRegistry::from_ron(&text).unwrap_err();
         assert!(err.to_string().contains("speed"), "{err}");
+    }
+
+    #[test]
+    fn bad_wave_rules_are_reported() {
+        for (from, to, needle) in [
+            (
+                r#"(unit: "brute", from_wave: 2"#,
+                r#"(unit: "goblin", from_wave: 2"#,
+                "waves[1].unit: unknown unit `goblin`",
+            ),
+            (
+                "from_wave: 3, count: 1, grow: 1, every: 2",
+                "from_wave: 3, count: 1, grow: 1, every: 0",
+                "waves[2].every",
+            ),
+            (
+                "from_wave: 6, count: 1, grow: 1",
+                "from_wave: 6, count: 0, grow: 0",
+                "waves[3].count",
+            ),
+        ] {
+            assert_eq!(BASE_CONTENT.matches(from).count(), 1, "{from}");
+            let err = ContentRegistry::from_ron(&BASE_CONTENT.replace(from, to)).unwrap_err();
+            assert!(err.to_string().contains(needle), "{err}");
+        }
+    }
+
+    #[test]
+    fn wave_rule_growth() {
+        let r = WaveRule {
+            unit: UnitTypeId(0),
+            from_wave: 3,
+            count: 2,
+            grow: 3,
+            every: 2,
+        };
+        let counts: Vec<u32> = (1..=8).map(|n| r.count_in(n)).collect();
+        assert_eq!(counts, [0, 0, 2, 2, 5, 5, 8, 8]);
     }
 
     #[test]

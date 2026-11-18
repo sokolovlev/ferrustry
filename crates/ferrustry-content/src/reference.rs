@@ -483,6 +483,52 @@ impl ContentRegistry {
                  of the original. The arc tower's discharge ignores armor."
             )
         );
+
+        const SAMPLE: [u32; 4] = [1, 5, 10, 20];
+        let _ = writeln!(w, "\n## {}\n", t("Волны", "Waves"));
+        let mut head = t(
+            "| Враг | С волны | Вначале | Прирост |",
+            "| Enemy | From wave | At first | Growth |",
+        )
+        .to_owned();
+        for n in SAMPLE {
+            let _ = write!(head, " {} {n} |", t("Волна", "Wave"));
+        }
+        let _ = writeln!(
+            w,
+            "{head}\n|---|---|---|---|{}",
+            "---|".repeat(SAMPLE.len())
+        );
+        for r in self.waves() {
+            let (g, e) = (r.grow, r.every);
+            let growth = match (g, e, en) {
+                (0, _, _) => "—".to_owned(),
+                (_, 1, true) => format!("+{g} each wave"),
+                (_, 1, false) => format!("+{g} каждую волну"),
+                (_, _, true) => format!("+{g} every {e} waves"),
+                (_, _, false) => {
+                    // 2–4, 22–24… волны; 5–20, 25… волн
+                    let few = (2..=4).contains(&(e % 10)) && !(12..=14).contains(&(e % 100));
+                    format!("+{g} каждые {e} {}", if few { "волны" } else { "волн" })
+                }
+            };
+            let mut row = format!(
+                "| `{}` | {} | {} | {growth} |",
+                self.unit(r.unit).name,
+                r.from_wave,
+                r.count
+            );
+            for n in SAMPLE {
+                let _ = write!(row, " {} |", r.count_in(n));
+            }
+            let _ = writeln!(w, "{row}");
+        }
+        let mut total = t("| **Всего** | | | |", "| **Total** | | | |").to_owned();
+        for n in SAMPLE {
+            let sum: u32 = self.waves().iter().map(|r| r.count_in(n)).sum();
+            let _ = write!(total, " **{sum}** |");
+        }
+        let _ = writeln!(w, "{total}");
         s
     }
 }

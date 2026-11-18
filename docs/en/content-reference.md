@@ -75,3 +75,13 @@ Floors: `basalt`, `ash`, `slag_pool` (not buildable).
 | `shellback` | 320 | 8 | 0.94 | melee 30, every 1.33 s | 22.5 |
 
 Armor is subtracted from projectile damage, but damage never drops below a third of the original. The arc tower's discharge ignores armor.
+
+## Waves
+
+| Enemy | From wave | At first | Growth | Wave 1 | Wave 5 | Wave 10 | Wave 20 |
+|---|---|---|---|---|---|---|---|
+| `crawler` | 1 | 5 | +2 each wave | 5 | 13 | 23 | 43 |
+| `brute` | 2 | 1 | +1 every 2 waves | 0 | 2 | 5 | 10 |
+| `spitter` | 3 | 1 | +1 every 2 waves | 0 | 2 | 4 | 9 |
+| `shellback` | 6 | 1 | +1 every 2 waves | 0 | 0 | 3 | 8 |
+| **Total** | | | | **5** | **17** | **35** | **70** |

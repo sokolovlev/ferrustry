@@ -72,9 +72,9 @@ See `docs/en/performance-design.md`, tasks P-01…P-10.
 | S4-01 (**done**) | Spatial grid, units (SoA/hecs, D-05), movement, separation | S1-04 |
 | S4-02 (**partial**: one field for ground units with local repair; movement classes — no) | Flow fields per movement class with incremental recompute | S4-01 |
 | S4-03 (**done**: gun, arc tower, armor, enemy projectiles) | Turrets, projectiles, damage, armor, building destruction | S4-01 |
-| S4-04 (**done**, wave composition in code) | Enemy waves | S4-02, S4-03 |
+| S4-04 (**done**) | Enemy waves | S4-02, S4-03 |
 | S5-01 (**partial**: generator and schematics; `.fmap` — no) | Map generator, `.fmap` format, `.fschem` schematics | S1-09 |
-| S5-02 | Wave composition in content data (currently `World::wave_composition` in code) | S4-04 |
+| S5-02 (**done** 2026-11-18) | Wave composition in content data | S4-04 |
 | S6-01 | `ferrustry-net`: protocol, version, handshake, snapshot + deltas | S1-09 |
 | S6-02 | `ferrustry-server`: headless server, config, admin commands | S6-01 |
 | S6-03 | Client: connecting, prediction, handling disconnects | S6-01, S2-02 |

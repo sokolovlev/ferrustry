@@ -100,8 +100,29 @@ Example — a new building with no code changes:
 | `range` | Tiles; 0 (default) — melee | — |
 | `projectile_speed` | Projectile speed of a ranged enemy | > 0 if range > 0 |
 
-Wave composition is still defined in code (`World::wave_composition`), not data: an enemy with a new name
-appears in the game only if it is added there. Moving waves into data is in the stage 5 backlog (S5-02).
+## Waves
+
+```ron
+waves: [
+    (unit: "crawler", from_wave: 1, count: 5, grow: 2, every: 1),
+    (unit: "brute", from_wave: 2, count: 1, grow: 1, every: 2),
+],
+```
+
+Each rule: from wave `from_wave` on, `count` enemies of kind `unit` arrive, and every `every` waves there
+are `grow` more: in wave N — `count + grow × ⌊(N − from_wave) / every⌋`. One kind may have several
+rules (for example, a second "reinforcement" rule from wave 10). The resulting numbers
+for waves 1, 5, 10 and 20 are shown in the content reference.
+
+| Field | Meaning | Constraints |
+|---|---|---|
+| `unit` | Enemy name from the `units` section | Exists |
+| `from_wave` | First wave (from 1) | > 0 |
+| `count` | How many in the first wave | Not 0 together with `grow` |
+| `grow` | Growth, default 0 | — |
+| `every` | Growth every how many waves, default 1 | > 0 |
+
+A new enemy joins the waves as soon as it has a rule — no code changes needed.
 
 ## What needs code
 

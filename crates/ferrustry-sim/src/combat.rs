@@ -328,27 +328,12 @@ impl World {
 
     /// Состав волны `n` (с 1): (тип, количество).
     pub fn wave_composition(reg: &ContentRegistry, n: u32) -> Vec<(UnitTypeId, u32)> {
-        let mut v = Vec::new();
-        if let Some(c) = reg.unit_by_name("crawler") {
-            v.push((c, 3 + 2 * n));
-        }
-        if let Some(b) = reg.unit_by_name("brute")
-            && n / 2 > 0
-        {
-            v.push((b, n / 2));
-        }
-        // с 3-й волны — дальнобойные, с 6-й — бронированные
-        if let Some(s) = reg.unit_by_name("spitter")
-            && n >= 3
-        {
-            v.push((s, (n - 1) / 2));
-        }
-        if let Some(s) = reg.unit_by_name("shellback")
-            && n >= 6
-        {
-            v.push((s, (n - 4) / 2));
-        }
-        v
+        // правила — в данных контента (`waves` в base.ron)
+        reg.waves()
+            .iter()
+            .map(|r| (r.unit, r.count_in(n)))
+            .filter(|&(_, c)| c > 0)
+            .collect()
     }
 
     fn update_waves(&mut self, reg: &ContentRegistry) {

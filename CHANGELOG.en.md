@@ -15,6 +15,8 @@ Save format 5.0.
 - **The enemy flow field is repaired locally** on building and removal instead of a full rebuild:
   a battle with building (new benchmark B8) has a 3.2× faster mean tick and 6–8× faster p99; the field
   is built when the map is created, so the first wave causes no spike.
+- **Wave composition is defined by data** (`waves` in `base.ron`), not code; the content reference
+  shows the number of enemies in waves 1, 5, 10 and 20. The game did not change (verified by a test).
 - An English version of all documentation (`docs/en/`, `README.en.md`, `CHANGELOG.en.md`); a test
   makes sure every document exists in both versions with the same sections, and both content
   references are generated from the data.

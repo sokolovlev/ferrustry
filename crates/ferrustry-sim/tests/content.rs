@@ -397,3 +397,24 @@ fn incoming_damage_bookkeeping_holds_in_battle() {
     }
     assert!(w.kills() > 100, "kills {}", w.kills());
 }
+
+/// S5-02: состав волн перенесён из кода в данные без изменения игры — до 60-й волны совпадает
+/// с прежними формулами из кода.
+#[test]
+fn wave_data_matches_the_former_formulas() {
+    let reg = reg();
+    let id = |n: &str| reg.unit_by_name(n).unwrap();
+    for n in 1..=60u32 {
+        let mut old = vec![(id("crawler"), 3 + 2 * n)];
+        if n / 2 > 0 {
+            old.push((id("brute"), n / 2));
+        }
+        if n >= 3 {
+            old.push((id("spitter"), (n - 1) / 2));
+        }
+        if n >= 6 {
+            old.push((id("shellback"), (n - 4) / 2));
+        }
+        assert_eq!(World::wave_composition(&reg, n), old, "wave {n}");
+    }
+}

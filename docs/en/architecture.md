@@ -312,3 +312,11 @@ Turret reload now runs every tick, even without enemies (it used to freeze toget
 | Repair | Region D: the changed tiles and every tile whose distance was obtained through them (`dist[q] == dist[p] + cost(q)`); D is reset, filled from its border, then Dijkstra. D > ¼ of the map — full rebuild | The result is bit-identical to a full rebuild (differential test on random building) |
 | Tile cost | 1 + the building kind's **full** health / 8 (previously current health) | The field is a function of what is built, not of damage: otherwise the repair would not match a rebuild. Previously damage was only picked up at the next, arbitrary, build |
 | In advance | `World::prepare_flow` at map generation and in scenarios | The first wave does not pay for a full build inside a tick |
+
+## 20. Waves in data (S5-02, 2026-11-18)
+
+Wave composition is the `waves` section of `base.ron`: a rule "enemy kind, from which wave, how many at
+first, growth every N waves" (`WaveRule::count_in`). `World::wave_composition` only applies the rules.
+The move did not change the game: a test compares waves 1–60 with the former formulas from code. The content
+reference shows how many enemies arrive in waves 1, 5, 10 and 20 — wave balance is tuned by
+editing data, with the result visible immediately.
