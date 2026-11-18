@@ -190,3 +190,24 @@ the topology changes. Behaviour did not change — the fingerprint
 Next for P-04: the "belt → building" link can carry the receiver's row number (it changes only on
 removal, which already resets the link cache), so handing an item to a crafter or a core will not
 read the building record either.
+
+**P-04, second step (2026-11-18): what worked and what did not.**
+
+- *A "belt → building" link carrying the receiver's row number* — built, measured, **rolled back**:
+  L1 misses −0.8%, time unchanged. Handing an item to a building is rare in B3 (a crafter receives
+  an input once every few dozen ticks), so reading the building record there is not hot. The
+  expectation was wrong.
+- *Merging the passes over power networks*: B3-100k has about 5,000 networks of 64 bytes, and the
+  balance walked them 4 times per tick — now 2. Same behaviour and state hash. L1 misses (cachegrind)
+  −11.7%, time: −3% at 10k, within VM noise at 100k. The difference is that cachegrind does not
+  model hardware prefetching, and the CPU prefetches a sequential pass over an array well.
+- *Checks in `World::validate`*: the live link caches (building output, belt output) and the
+  "slot → drill row" table must match a fresh calculation. They catch a whole class of "stale cache"
+  bugs; a test corrupts a cache and expects an error.
+
+**Where the misses are now (cachegrind, B3-100k):** belts — two memory accesses per segment per
+tick: the segment record (`len`) and a **separate heap buffer of items** (`slots[head]`). Segment
+records lie contiguously and are prefetched; the buffers sit at random heap addresses where
+prefetching does not help. The next step is **P-03**: the items of all segments in one contiguous
+pool in segment order, the segment's hot fields in a dense array. A separate rework of
+`segment.rs` with its own randomized tests.

@@ -5,6 +5,13 @@
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0,
 saves are incompatible between minor versions (the game reports a format version mismatch).
 
+## Unreleased
+
+### Changed
+- The power balance walks the networks twice per tick instead of four times (same behaviour).
+- `World::validate` checks that the live link caches and the drill row table match a fresh
+  calculation.
+
 ## 0.6.0 — 2026-11-18
 
 Save format 6.0.

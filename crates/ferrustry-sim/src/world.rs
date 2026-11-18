@@ -281,7 +281,7 @@ pub(crate) enum Link {
     Nothing,
     /// Постройка, которая никогда не примет предмет с этой стороны.
     Refuses,
-    /// Производство или ядро.
+    /// Производство, ядро, турель, топливный генератор, склад.
     Building(BuildingId),
     /// Постройка 1×1, которой важна сторона входа (разветвитель, сортировщик, мост);
     /// `side` — направление от неё к источнику.
@@ -1321,13 +1321,14 @@ impl World {
             return false;
         };
         let row = b.row as usize;
+        let def = reg.block(b.block);
         match b.tag {
             KindTag::Generator => {
                 let BlockKind::Generator {
                     fuel: Some(fuel),
                     buffer,
                     ..
-                } = reg.block(b.block).kind
+                } = def.kind
                 else {
                     return false;
                 };
@@ -1340,7 +1341,7 @@ impl World {
                 }
             }
             KindTag::Depot => {
-                let BlockKind::Depot { capacity } = reg.block(b.block).kind else {
+                let BlockKind::Depot { capacity } = def.kind else {
                     return false;
                 };
                 let Some(d) = self.depots.rows.get_mut(row) else {
@@ -1361,7 +1362,7 @@ impl World {
                     shots_per_item,
                     buffer,
                     ..
-                } = reg.block(b.block).kind
+                } = def.kind
                 else {
                     return false;
                 };
@@ -1377,7 +1378,7 @@ impl World {
                 true
             }
             KindTag::Crafter => {
-                let BlockKind::Crafter { inputs, buffer, .. } = &reg.block(b.block).kind else {
+                let BlockKind::Crafter { inputs, buffer, .. } = &def.kind else {
                     return false;
                 };
                 let Some(slot) = inputs.iter().position(|s| s.item == item) else {
@@ -1394,7 +1395,7 @@ impl World {
                 }
             }
             KindTag::Core => {
-                let BlockKind::Core { capacity } = reg.block(b.block).kind else {
+                let BlockKind::Core { capacity } = def.kind else {
                     return false;
                 };
                 let Some(core) = self.cores.rows.get_mut(row) else {
@@ -2044,6 +2045,19 @@ impl World {
             if b.dump_epoch > self.topo_epoch {
                 return Err("dump cache from the future".into());
             }
+            if b.dump_epoch == self.topo_epoch {
+                // действующий кэш выгрузки обязан совпадать со свежим расчётом (строки получателей)
+                let fresh: Vec<Link> = (0..b.perimeter_len())
+                    .map(|p| {
+                        let (outer, inner) = b.perimeter(p);
+                        self.resolve_link(outer, inner)
+                    })
+                    .filter(|l| !matches!(l, Link::Nothing | Link::Refuses))
+                    .collect();
+                if fresh != b.dump_links {
+                    return Err(format!("stale dump links at {:?}", b.origin));
+                }
+            }
             if let Some(n) = b.power_net
                 && (n as usize) >= self.power.nets.len()
             {
@@ -2125,6 +2139,26 @@ impl World {
             return Err("projectile arrays out of sync".into());
         }
         self.check_incoming(reg)?;
+        // действующая таблица «ячейка → строка бура» обязана совпадать с таблицей буров
+        let map = &self.drill_rows.0;
+        if map.0 == self.topo_epoch {
+            for (slot, &r) in map.1.iter().enumerate() {
+                let ok = if r == u32::MAX {
+                    self.buildings
+                        .id_at(slot)
+                        .and_then(|id| self.buildings.get(id))
+                        .is_none_or(|b| b.tag != KindTag::Drill)
+                } else {
+                    self.drills
+                        .owners
+                        .get(r as usize)
+                        .is_some_and(|o| Arena::slot_index(*o) == slot)
+                };
+                if !ok {
+                    return Err(format!("stale drill row table at slot {slot}"));
+                }
+            }
+        }
         if self.timers.len() != TIMER_SLOTS {
             return Err("timer wheel size mismatch".into());
         }
@@ -2134,6 +2168,12 @@ impl World {
         for (i, seg) in self.segments.iter().enumerate() {
             let Some(seg) = seg else { continue };
             seg.validate()?;
+            if seg.link_epoch == self.topo_epoch
+                && let Some(&tail) = seg.tiles.last()
+                && seg.link != self.resolve_link(tail.step(seg.out_dir), tail)
+            {
+                return Err(format!("segment {i}: stale output link"));
+            }
             if seg
                 .waiters
                 .iter()
@@ -2449,5 +2489,56 @@ impl World {
                 .cloned(),
             detail,
         })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use ferrustry_content::ContentRegistry;
+
+    use super::{Command, Link, World};
+    use crate::geom::{Dir, TilePos};
+    use crate::scenario::{self, BaseIds};
+
+    /// `validate` ловит устаревшую кэшированную связь на выходе ленты.
+    #[test]
+    fn validate_detects_stale_cached_links() {
+        let reg = ContentRegistry::base().unwrap();
+        let ids = BaseIds::resolve(&reg).unwrap();
+        let mut w = World::new(&reg, 20, 10, ids.basalt, 1);
+        let mut cmds = vec![
+            Command::Place {
+                block: ids.smelter,
+                origin: TilePos::new(8, 4),
+                rot: Dir::Right,
+            },
+            Command::Place {
+                block: ids.smelter,
+                origin: TilePos::new(14, 4),
+                rot: Dir::Right,
+            },
+        ];
+        cmds.extend((2..8).map(|x| Command::Place {
+            block: ids.conveyor,
+            origin: TilePos::new(x, 4),
+            rot: Dir::Right,
+        }));
+        scenario::build(&mut w, &reg, &cmds).unwrap();
+        w.debug_fill_conveyors(ids.iron_ore, 64);
+        for _ in 0..60 {
+            w.step(&reg);
+        }
+        w.validate(&reg).unwrap();
+        // испортить строку получателя в действующем кэше выхода ленты
+        let seg = w
+            .segments
+            .iter_mut()
+            .flatten()
+            .find(|s| matches!(s.link, Link::Building(_)))
+            .unwrap();
+        seg.link = Link::Refuses;
+        let err = w.validate(&reg).unwrap_err();
+        assert!(err.contains("stale output link"), "{err}");
     }
 }

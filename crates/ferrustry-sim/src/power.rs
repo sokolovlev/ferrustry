@@ -159,9 +159,14 @@ impl World {
     }
 
     pub(crate) fn balance_power(&mut self, reg: &ContentRegistry) {
+        // Проходов по сетям — два (этот и баланс): сетей бывают тысячи, каждый проход по ним —
+        // промахи кэша (P-04). Поля батарей тоже обнуляются здесь: потребители их не трогают.
         for n in &mut self.power.nets {
             n.production = n.steady;
             n.demand = 0;
+            n.stored = 0;
+            n.capacity = 0;
+            n.battery_flow = 0;
         }
         // топливные генераторы горят, пока есть топливо (горение не зависит от спроса — v0)
         let (nets, stats) = (&mut self.power.nets, &mut self.stats);
@@ -257,11 +262,6 @@ impl World {
             }
         }
         // батареи: суммарный запас и ёмкость по сетям
-        for n in &mut self.power.nets {
-            n.stored = 0;
-            n.capacity = 0;
-            n.battery_flow = 0;
-        }
         for (row, owner) in self.batteries.rows.iter().zip(&self.batteries.owners) {
             let Some(b) = self.buildings.get(*owner) else {
                 continue;
@@ -290,12 +290,11 @@ impl World {
                 n.satisfaction =
                     u32::try_from((available * 1000 / n.demand).min(1000)).unwrap_or(1000);
             }
-        }
-        // распределить заряд/разряд по батареям сети в порядке таблицы (детерминированно)
-        for n in &mut self.power.nets {
+            // подготовка распределения по батареям (в том же проходе)
             n.stored = 0;
             n.pending = n.battery_flow;
         }
+        // распределить заряд/разряд по батареям сети в порядке таблицы (детерминированно)
         for r in 0..self.batteries.len() {
             let owner = self.batteries.owners[r];
             let Some(b) = self.buildings.get(owner) else {

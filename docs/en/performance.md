@@ -283,3 +283,12 @@ P-04 (dense crafter and drill rows), cloud VM, behaviour unchanged (fingerprint)
 | Instructions/tick, 10k / 100k | 379,670 / 3,763,883 | 334,806 / 3,319,853 (−11.8%) |
 | L1 data misses/tick, 100k | 137,548 | 85,459 (−37.9%) |
 | Tick time (median of 5 alternating runs), 10k / 100k | 26.7 / 613 µs | 23.0 / 480 µs (−14% / −22%) |
+
+### 2026-11-18 — P-04, second step
+
+Cloud VM, B3, behaviour and state hash unchanged. Details: `docs/en/performance-design.md`.
+
+| Change | L1 misses/tick, 100k | Tick time |
+|---|---|---|
+| Link carrying the receiver's row (**rolled back**) | 85,464 → 84,785 (−0.8%) | unchanged |
+| Merging the power network passes (4 → 2) | 85,464 → 75,451 (−11.7%) | 10k: 22.6 → 22.0 µs; 100k: within noise |
