@@ -2,6 +2,8 @@
 
 **Reforge the Industry.** Industrial strategy, reengineered in Rust.
 
+Русский · [English](README.en.md)
+
 Ferrustry — оригинальная open-source игра жанра «автоматизация производства + защита базы»
 на Rust: собственный движок, headless-симуляция с фиксированным шагом, выделенный сервер
 и упор на измеримую производительность больших баз.

@@ -1,7 +1,8 @@
 # Архитектура Ferrustry
 
 Статус: **утверждено 2026-11-15**. Реализованы крейты `ferrustry-content`, `ferrustry-sim`,
-`ferrustry-format`, `ferrustry-headless`; остальные появятся на своих этапах.
+`ferrustry-format`, `ferrustry-headless`, `ferrustry-render`, `ferrustry-client`; звук, сеть и сервер
+появятся на своих этапах.
 
 Ferrustry — оригинальная игра жанра «автоматизация производства + защита базы» на Rust.
 Ключевое требование: игровая симуляция полностью отделена от графики и работает headless —

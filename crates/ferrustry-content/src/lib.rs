@@ -5,6 +5,7 @@
 //! с числовыми ID.
 
 mod reference;
+pub use reference::DocLang;
 
 use std::collections::HashMap;
 
