@@ -22,7 +22,8 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless run [--ticks N] [--save FILE]   вертикальный срез, сводка
   ferrustry-headless resume FILE [--ticks N]          продолжить сохранение
   ferrustry-headless save-check [--ticks N]           save → load → сравнить продолжение
-  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3|b5> [--ticks N] [--warmup N] [--conveyors N] [--out FILE]
+  ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3|b5|b8> [--ticks N] [--warmup N] [--conveyors N]
+                           [--full-flow] [--out FILE]   --full-flow: поле путей всегда целиком (эталон)
   ferrustry-headless suite [--runs N] [--quick] [--out FILE]  полный набор бенчмарков (медианы)
   ferrustry-headless record --out FILE [--seed S] [--ticks N] [--size N] [--checkpoint-every N]
                                                     записать партию (случайная стройка)
@@ -53,6 +54,16 @@ impl Args {
                 .parse()
                 .map_err(|_| format!("{name}: `{v}` is not a number")),
             None => Ok(default),
+        }
+    }
+
+    fn flag(&mut self, name: &str) -> bool {
+        match self.rest.iter().position(|a| a == name) {
+            Some(i) => {
+                self.rest.remove(i);
+                true
+            }
+            None => false,
         }
     }
 
@@ -151,8 +162,9 @@ fn real_main(args: &mut Args) -> Result<(), String> {
             let warmup = args.number("--warmup", 300)?;
             let conveyors = args.number("--conveyors", 10_000)?;
             let out = args.value("--out")?;
+            let full_flow = args.flag("--full-flow");
             args.finish()?;
-            let report = bench(&reg, &name, ticks, warmup, conveyors)?;
+            let report = bench(&reg, &name, ticks, warmup, conveyors, full_flow)?;
             let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
             println!("{json}");
             if let Some(path) = out {
@@ -307,6 +319,7 @@ fn bench(
     ticks: u64,
     warmup: u64,
     conveyors: u64,
+    full_flow: bool,
 ) -> Result<Report, String> {
     let n = u32::try_from(conveyors).map_err(|e| e.to_string())?;
     let setup = Instant::now();
@@ -316,24 +329,33 @@ fn bench(
         "b2-blocked" => scenario::bench_blocked_lines(reg, n),
         "b2-comb" => scenario::bench_combs(reg, n),
         "b3" => scenario::bench_megabase(reg, n),
-        "b5" => scenario::bench_battle(reg, n, 300),
+        "b5" | "b8" => scenario::bench_battle(reg, n, 300),
         other => {
             return Err(format!(
-                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb, b3, b5)"
+                "unknown benchmark `{other}` (available: b1, b2, b2-blocked, b2-comb, b3, b5, b8)"
             ));
         }
     }
     .map_err(|e| e.to_string())?;
+    w.set_incremental_flow(!full_flow);
+    // B8: бой, во время которого игрок строит и сносит стены на пути врагов
+    let building = name == "b8";
     let setup_ms = setup.elapsed().as_secs_f64() * 1e3;
 
-    for _ in 0..warmup {
+    let step = |w: &mut World| {
+        if building && let Some(cmd) = scenario::battle_build_command(w, reg) {
+            let _ = w.apply(reg, &cmd);
+        }
         w.step(reg);
+    };
+    for _ in 0..warmup {
+        step(&mut w);
     }
     let mut samples: Vec<f64> = Vec::with_capacity(usize::try_from(ticks).unwrap_or(0));
     let allocs_before = alloc::count();
     for _ in 0..ticks {
         let t = Instant::now();
-        w.step(reg);
+        step(&mut w);
         samples.push(t.elapsed().as_secs_f64() * 1e6);
     }
     let allocs = alloc::count() - allocs_before;
@@ -428,6 +450,8 @@ fn suite(runs: u64, quick: bool, out: &str) -> Result<(), String> {
     }
     // B5: бой не установившийся — марш и сражение, первые 1500 тиков без прогрева
     cases.push(("b5", if quick { 300 } else { 1000 }, 0, 1500));
+    // B8: тот же бой со стройкой и сносом стен каждые 5 тиков (локальная починка поля путей)
+    cases.push(("b8", if quick { 300 } else { 1000 }, 0, 1500));
     let mut results = Vec::new();
     println!(
         "{:<11} {:>7} {:>11} {:>11} {:>8} {:>9}",

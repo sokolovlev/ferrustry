@@ -28,7 +28,7 @@ use ferrustry_sim::World;
 /// Сигнатура файла.
 pub const MAGIC: &[u8; 8] = b"FERRUSTR";
 /// Текущая версия формата.
-pub const VERSION: (u16, u16) = (4, 0);
+pub const VERSION: (u16, u16) = (5, 0);
 /// Предел размера распакованной секции (защита от «zip-бомб»).
 pub const MAX_SECTION: u64 = 512 * 1024 * 1024;
 

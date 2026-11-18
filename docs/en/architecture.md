@@ -300,3 +300,15 @@ the guaranteed carbon near the start was overwritten by a random deposit generat
 | Ranged enemies | Find the nearest building in range (a square of tiles, row by row — deterministic), stand and shoot until the cooldown ends | Enemy projectiles share the same SoA with a `hostile` flag; they hit any building on their tile |
 
 Turret reload now runs every tick, even without enemies (it used to freeze together with the combat step).
+
+## 19. Combat: overkill and flow field repair (P-10, 2026-11-18)
+
+| What | Mechanics | Why |
+|---|---|---|
+| Damage in flight | `Units::incoming` — damage of projectiles flying at the unit (after armor); `Projectiles::target` — the projectile's target. Turrets pick the nearest unit whose health exceeds its damage in flight | Without it several turrets waste shots on an already doomed target. A miss (the projectile hit someone else) makes the target selectable again |
+| Indices after deaths | Removing the dead keeps an "old index → new" table in a scratch buffer and remaps projectile targets in one pass | Units are SoA with swap-remove; stable IDs would cost more |
+| Invariant | `World::validate`: each unit's `incoming` equals the sum of damage of projectiles aimed at it | A bookkeeping error shows up in any test that calls `validate` (in battle — every tick) |
+| Change log | Building and removal record tiles in `FlowField::dirty`; a core or > 4096 tiles means a full rebuild | The field is repaired only where something changed |
+| Repair | Region D: the changed tiles and every tile whose distance was obtained through them (`dist[q] == dist[p] + cost(q)`); D is reset, filled from its border, then Dijkstra. D > ¼ of the map — full rebuild | The result is bit-identical to a full rebuild (differential test on random building) |
+| Tile cost | 1 + the building kind's **full** health / 8 (previously current health) | The field is a function of what is built, not of damage: otherwise the repair would not match a rebuild. Previously damage was only picked up at the next, arbitrary, build |
+| In advance | `World::prepare_flow` at map generation and in scenarios | The first wave does not pay for a full build inside a tick |

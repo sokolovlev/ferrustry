@@ -5,12 +5,22 @@
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0,
 saves are incompatible between minor versions (the game reports a format version mismatch).
 
-## Unreleased
+## 0.5.0 — 2026-11-18
+
+Save format 5.0.
 
 ### Added
+- **Turrets spread their fire**: they don't shoot an enemy that shells in flight will already kill.
+  In a battle of 1000 enemies against 300 turrets, 7.3% more kills with the same ammo.
+- **The enemy flow field is repaired locally** on building and removal instead of a full rebuild:
+  a battle with building (new benchmark B8) has a 3.2× faster mean tick and 6–8× faster p99; the field
+  is built when the map is created, so the first wave causes no spike.
 - An English version of all documentation (`docs/en/`, `README.en.md`, `CHANGELOG.en.md`); a test
   makes sure every document exists in both versions with the same sections, and both content
   references are generated from the data.
+
+### Changed
+- The cost of going around a building is based on its full health, not its current health.
 
 ## 0.4.0 — 2026-11-17
 

@@ -33,6 +33,9 @@ pub struct Units {
     pub(crate) vy: Vec<i32>,
     /// Дальнобойный юнит стоит и стреляет (до конца перезарядки).
     pub(crate) hold: Vec<bool>,
+    /// Урон снарядов, уже летящих в этого юнита (с учётом брони): турели не стреляют по
+    /// юниту, которого уже добьют снаряды в полёте (P-10).
+    pub(crate) incoming: Vec<u32>,
 }
 
 impl Units {
@@ -55,6 +58,7 @@ impl Units {
         self.vx.swap_remove(i);
         self.vy.swap_remove(i);
         self.hold.swap_remove(i);
+        self.incoming.swap_remove(i);
     }
 }
 
@@ -69,6 +73,8 @@ pub struct Projectiles {
     pub(crate) ttl: Vec<u32>,
     /// Снаряд врага: бьёт постройки, а не юнитов.
     pub(crate) hostile: Vec<bool>,
+    /// Цель снаряда турели (индекс юнита, `NONE` — нет): для учёта `Units::incoming`.
+    pub(crate) target: Vec<u32>,
 }
 
 impl Projectiles {
@@ -80,9 +86,20 @@ impl Projectiles {
         self.damage.swap_remove(i);
         self.ttl.swap_remove(i);
         self.hostile.swap_remove(i);
+        self.target.swap_remove(i);
     }
 
-    fn push(&mut self, x: i32, y: i32, v: (i32, i32), damage: u32, ttl: u32, hostile: bool) {
+    #[allow(clippy::too_many_arguments)]
+    fn push(
+        &mut self,
+        x: i32,
+        y: i32,
+        v: (i32, i32),
+        damage: u32,
+        ttl: u32,
+        hostile: bool,
+        target: u32,
+    ) {
         self.x.push(x);
         self.y.push(y);
         self.vx.push(v.0);
@@ -90,14 +107,30 @@ impl Projectiles {
         self.damage.push(damage);
         self.ttl.push(ttl);
         self.hostile.push(hostile);
+        self.target.push(target);
     }
 }
 
 /// Поле путей к ядрам: «стоимость дойти» для каждого тайла.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowField {
-    pub(crate) epoch: u64,
     pub(crate) dist: Vec<u32>,
+    /// Тайлы, где стройка или снос изменили стоимость входа с последнего обновления поля.
+    pub(crate) dirty: Vec<u32>,
+    /// Нужна полная перестройка (изменились ядра или накопилось слишком много изменений).
+    pub(crate) full: bool,
+}
+
+/// Больше изменённых тайлов — полная перестройка вместо починки.
+const MAX_FLOW_DIRTY: usize = 4096;
+
+/// Служебные буферы поля путей (не сохраняются): без аллокаций в установившемся режиме.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FlowScratch {
+    mark: Vec<u32>,
+    stamp: u32,
+    queue: Vec<u32>,
+    heap: BinaryHeap<Reverse<(u32, u32)>>,
 }
 
 /// Состояние волн.
@@ -156,6 +189,11 @@ pub(crate) struct UnitGrid {
     cells_y: i32,
     head: Vec<u32>,
     next: Vec<u32>,
+}
+
+/// Урон снаряда по юниту с бронёй: броня вычитается, но урон не ниже трети исходного.
+fn armored(damage: u32, armor: u32) -> u32 {
+    damage.saturating_sub(armor).max(damage / 3)
 }
 
 fn isqrt(v: i64) -> i64 {
@@ -285,6 +323,7 @@ impl World {
         self.units.vx.push(0);
         self.units.vy.push(0);
         self.units.hold.push(false);
+        self.units.incoming.push(0);
     }
 
     /// Состав волны `n` (с 1): (тип, количество).
@@ -337,15 +376,53 @@ impl World {
         self.waves.next_tick = self.tick_count() + self.rules().wave_spacing.max(1);
     }
 
+    /// Отметить изменение построек для поля путей: тайлы постройки (или полная перестройка,
+    /// если это ядро — меняются источники поля).
+    pub(crate) fn flow_touch(&mut self, b: &crate::buildings::Building) {
+        let f = &mut self.flow;
+        if f.full {
+            return;
+        }
+        if b.tag == KindTag::Core || f.dirty.len() > MAX_FLOW_DIRTY {
+            f.full = true;
+            f.dirty.clear();
+            return;
+        }
+        let w = self.grid.width() as i32;
+        for dy in 0..i32::from(b.size) {
+            for dx in 0..i32::from(b.size) {
+                f.dirty
+                    .push(((b.origin.y + dy) * w + b.origin.x + dx) as u32);
+            }
+        }
+    }
+
+    /// Построить поле путей заранее (при создании карты), чтобы первая волна не платила за
+    /// полное построение внутри тика. Дальше поле только чинится локально.
+    pub fn prepare_flow(&mut self, reg: &ContentRegistry) {
+        self.update_flow(reg);
+    }
+
+    /// Привести поле путей в соответствие с постройками: полная перестройка или локальная починка.
+    fn update_flow(&mut self, reg: &ContentRegistry) {
+        let changed = !self.flow.dirty.is_empty();
+        if self.flow.full || self.flow.dist.is_empty() || (self.flow_full_only && changed) {
+            self.rebuild_flow(reg);
+        } else if !self.flow.dirty.is_empty() {
+            self.repair_flow(reg);
+        }
+    }
+
     /// Поле путей: Дейкстра от всех тайлов ядер; вход в пустой тайл стоит 1, в тайл постройки —
     /// 1 + прочность/8 (стена 400 ≈ 51 тайл обхода) (враги обходят постройки, но проламывают, если обход дороже).
     fn rebuild_flow(&mut self, reg: &ContentRegistry) {
         let (w, h) = (self.grid.width() as i32, self.grid.height() as i32);
         let n = (w * h) as usize;
         let mut dist = std::mem::take(&mut self.flow.dist);
+        let mut scratch = std::mem::take(&mut self.flow_scratch.0);
         dist.clear();
         dist.resize(n, u32::MAX);
-        let mut heap: BinaryHeap<Reverse<(u32, u32)>> = BinaryHeap::new();
+        scratch.heap.clear();
         for (_, b) in self.buildings.iter() {
             if b.tag != KindTag::Core {
                 continue;
@@ -354,10 +431,25 @@ impl World {
                 for dx in 0..i32::from(b.size) {
                     let i = ((b.origin.y + dy) * w + b.origin.x + dx) as usize;
                     dist[i] = 0;
-                    heap.push(Reverse((0, i as u32)));
+                    scratch.heap.push(Reverse((0, i as u32)));
                 }
             }
         }
+        self.relax_flow(reg, &mut dist, &mut scratch.heap);
+        self.flow.dist = dist;
+        self.flow.dirty.clear();
+        self.flow.full = false;
+        self.flow_scratch.0 = scratch;
+    }
+
+    /// Дейкстра от узлов в куче: улучшает `dist`, пока есть что улучшать.
+    fn relax_flow(
+        &self,
+        reg: &ContentRegistry,
+        dist: &mut [u32],
+        heap: &mut BinaryHeap<Reverse<(u32, u32)>>,
+    ) {
+        let w = self.grid.width() as i32;
         while let Some(Reverse((d, i))) = heap.pop() {
             if d > dist[i as usize] {
                 continue;
@@ -379,11 +471,106 @@ impl World {
                 }
             }
         }
-        self.flow.dist = dist;
-        self.flow.epoch = self.topo_epoch();
     }
 
-    /// Стоимость входа в тайл для наземного юнита (`None` — непроходим).
+    /// Локальная починка поля путей после изменения построек на тайлах `dirty` (P-10).
+    ///
+    /// 1. Область D — изменённые тайлы и все, чьё расстояние могло опираться на них: идём от D
+    ///    к соседям q, у которых `dist[q] == dist[p] + cost(q)` (q получил своё значение через p).
+    ///    Тайлы вне D опираются только на тайлы вне D, их стоимости не менялись — их значения
+    ///    остаются достижимыми.
+    /// 2. D сбрасывается и заполняется от границы с остальной картой; дальше обычная Дейкстра,
+    ///    которая заодно распространяет удешевления (снос) наружу.
+    ///
+    /// Результат побитово равен полной перестройке (проверяется тестом). Если D больше четверти
+    /// карты, дешевле перестроить целиком.
+    fn repair_flow(&mut self, reg: &ContentRegistry) {
+        let (w, h) = (self.grid.width() as i32, self.grid.height() as i32);
+        let n = (w * h) as usize;
+        let mut dist = std::mem::take(&mut self.flow.dist);
+        let mut s = std::mem::take(&mut self.flow_scratch.0);
+        if s.mark.len() != n || s.stamp == u32::MAX {
+            s.mark.clear();
+            s.mark.resize(n, 0);
+            s.stamp = 0;
+        }
+        s.stamp += 1;
+        let stamp = s.stamp;
+        s.queue.clear();
+        for &t in &self.flow.dirty {
+            if s.mark[t as usize] != stamp {
+                s.mark[t as usize] = stamp;
+                s.queue.push(t);
+            }
+        }
+        let mut head = 0;
+        let mut too_big = false;
+        while head < s.queue.len() {
+            let i = s.queue[head];
+            head += 1;
+            let dp = dist[i as usize];
+            if dp == u32::MAX {
+                continue;
+            }
+            let p = TilePos::new(i as i32 % w, i as i32 / w);
+            for dir in Dir::ALL {
+                let q = p.step(dir);
+                if !self.grid.in_bounds(q) {
+                    continue;
+                }
+                let j = (q.y * w + q.x) as usize;
+                if s.mark[j] == stamp || dist[j] == 0 {
+                    continue;
+                }
+                if let Some(cost) = self.enter_cost(reg, q)
+                    && dist[j] == dp.saturating_add(cost)
+                {
+                    s.mark[j] = stamp;
+                    s.queue.push(j as u32);
+                }
+            }
+            if s.queue.len() > n / 4 {
+                too_big = true;
+                break;
+            }
+        }
+        if too_big {
+            self.flow.dist = dist;
+            self.flow_scratch.0 = s;
+            self.rebuild_flow(reg);
+            return;
+        }
+        for &t in &s.queue {
+            dist[t as usize] = u32::MAX;
+        }
+        s.heap.clear();
+        for &t in &s.queue {
+            let p = TilePos::new(t as i32 % w, t as i32 / w);
+            let Some(cost) = self.enter_cost(reg, p) else {
+                continue;
+            };
+            let best = Dir::ALL
+                .iter()
+                .map(|&d| p.step(d))
+                .filter(|q| self.grid.in_bounds(*q))
+                .map(|q| dist[(q.y * w + q.x) as usize])
+                .filter(|&d| d != u32::MAX)
+                .min();
+            if let Some(b) = best {
+                let nd = b.saturating_add(cost);
+                dist[t as usize] = nd;
+                s.heap.push(Reverse((nd, t)));
+            }
+        }
+        self.relax_flow(reg, &mut dist, &mut s.heap);
+        self.flow.dist = dist;
+        self.flow.dirty.clear();
+        self.flow_scratch.0 = s;
+    }
+
+    /// Стоимость входа в тайл для наземного юнита (`None` — непроходим). Зависит только от
+    /// того, что построено (полная прочность вида постройки), а не от текущих повреждений:
+    /// поле путей — функция стройки, что позволяет чинить его локально.
     fn enter_cost(&self, reg: &ContentRegistry, p: TilePos) -> Option<u32> {
         let floor = self.grid.floor(p)?;
         if !reg.floor(floor).buildable {
@@ -391,7 +578,7 @@ impl World {
         }
         match self.grid.building(p).and_then(|id| self.buildings.get(id)) {
             Some(b) if b.tag == KindTag::Core => Some(1),
-            Some(b) => Some(1 + b.health / 8),
+            Some(b) => Some(1 + reg.block(b.block).health / 8),
             None => Some(1),
         }
     }
@@ -436,9 +623,7 @@ impl World {
         if self.units.is_empty() {
             return;
         }
-        if self.flow.epoch != self.topo_epoch() || self.flow.dist.is_empty() {
-            self.rebuild_flow(reg);
-        }
+        self.update_flow(reg);
         for i in 0..self.units.len() {
             if self.units.health[i] == 0 {
                 continue;
@@ -462,7 +647,7 @@ impl World {
                         let d = isqrt(dx * dx + dy * dy).max(1);
                         let v = ((dx * sp / d) as i32, (dy * sp / d) as i32);
                         let ttl = (d / sp.max(1)) as u32 + 2;
-                        self.projectiles.push(x, y, v, damage, ttl, true);
+                        self.projectiles.push(x, y, v, damage, ttl, true, NONE);
                         self.units.cooldown[i] = cd;
                         continue;
                     }
@@ -622,12 +807,13 @@ impl World {
         }
     }
 
-    /// Ближайший живой юнит в радиусе `reach` от точки: (квадрат расстояния, индекс).
+    /// Ближайший юнит в радиусе `reach` от точки, которого не добьют уже летящие снаряды:
+    /// (квадрат расстояния, индекс).
     fn nearest_unit(&self, cx: i32, cy: i32, reach: i32) -> Option<(i64, usize)> {
         let mut best: Option<(i64, usize)> = None;
         let units = &self.units;
         self.unit_grid.0.for_each_near(cx, cy, reach, |j| {
-            if units.health[j] > 0 {
+            if units.health[j] > units.incoming[j] {
                 let (dx, dy) = (i64::from(units.x[j] - cx), i64::from(units.y[j] - cy));
                 let d2 = dx * dx + dy * dy;
                 if d2 <= i64::from(reach) * i64::from(reach) && best.is_none_or(|(bd, _)| d2 < bd) {
@@ -703,7 +889,10 @@ impl World {
                 damage,
                 ttl,
                 false,
+                j as u32,
             );
+            let planned = armored(damage, reg.unit(self.units.kind[j]).armor);
+            self.units.incoming[j] = self.units.incoming[j].saturating_add(planned);
             let row = &mut self.turrets.rows[r];
             row.ammo -= 1;
             row.cooldown = reload;
@@ -751,12 +940,16 @@ impl World {
                 true
             });
             if let Some(j) = hit {
-                // броня: вычитается из урона, но урон не ниже трети исходного
-                let armor = reg.unit(self.units.kind[j]).armor;
-                let eff = dmg.saturating_sub(armor).max(dmg / 3);
+                let eff = armored(dmg, reg.unit(self.units.kind[j]).armor);
                 self.units.health[j] = self.units.health[j].saturating_sub(eff);
             }
             if hit.is_some() || self.projectiles.ttl[i] == 0 {
+                // снаряд больше не летит в цель (попал в неё, в другого или истёк)
+                let t = self.projectiles.target[i];
+                if let Some(inc) = self.units.incoming.get_mut(t as usize) {
+                    let planned = armored(dmg, reg.unit(self.units.kind[t as usize]).armor);
+                    *inc = inc.saturating_sub(planned);
+                }
                 self.projectiles.swap_remove(i);
             } else {
                 i += 1;
@@ -764,15 +957,56 @@ impl World {
         }
     }
 
+    /// Инвариант учёта урона в полёте: `incoming` каждого юнита равен сумме урона снарядов,
+    /// нацеленных в него (для `World::validate`).
+    pub(crate) fn check_incoming(&self, reg: &ContentRegistry) -> Result<(), String> {
+        let mut sum = vec![0u32; self.units.len()];
+        for (&t, &dmg) in self.projectiles.target.iter().zip(&self.projectiles.damage) {
+            if t == NONE {
+                continue;
+            }
+            let Some(s) = sum.get_mut(t as usize) else {
+                return Err("projectile target out of range".into());
+            };
+            let armor = reg.unit(self.units.kind[t as usize]).armor;
+            *s = s.saturating_add(armored(dmg, armor));
+        }
+        if sum != self.units.incoming {
+            return Err("incoming damage does not match projectiles in flight".into());
+        }
+        Ok(())
+    }
+
+    /// Удаляет убитых (swap-remove) и переназначает цели снарядов: старый индекс → новый.
     fn remove_dead_units(&mut self) {
-        let mut i = self.units.len();
+        let n = self.units.len();
+        if !self.units.health.contains(&0) {
+            return;
+        }
+        let (mut place, mut who) = std::mem::take(&mut self.unit_remap.0);
+        place.clear();
+        place.extend(0..n as u32); // старый индекс → новый
+        who.clear();
+        who.extend(0..n as u32); // новый индекс → старый
+        let mut i = n;
         while i > 0 {
             i -= 1;
             if self.units.health[i] == 0 {
+                let last = self.units.len() - 1;
+                let (dead, moved) = (who[i], who[last]);
                 self.units.swap_remove(i);
+                who.swap_remove(i);
+                place[moved as usize] = i as u32;
+                place[dead as usize] = NONE;
                 self.kills += 1;
             }
         }
+        for t in &mut self.projectiles.target {
+            if *t != NONE {
+                *t = place[*t as usize];
+            }
+        }
+        self.unit_remap.0 = (place, who);
     }
 
     /// Боевой шаг тика.
@@ -789,5 +1023,86 @@ impl World {
         self.update_turrets(reg);
         self.update_projectiles(reg);
         self.remove_dead_units();
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use ferrustry_content::ContentRegistry;
+
+    use crate::geom::{Dir, TilePos};
+    use crate::rng::Rng;
+    use crate::scenario::BaseIds;
+    use crate::world::{Command, World};
+
+    /// Локальная починка поля путей даёт побитово то же поле, что полная перестройка, при
+    /// случайной стройке и сносе (стены, турели, ленты, иногда ядра) на карте с непроходимым шлаком.
+    #[test]
+    fn repaired_flow_equals_full_rebuild() {
+        let reg = ContentRegistry::base().unwrap();
+        let ids = BaseIds::resolve(&reg).unwrap();
+        let slag = reg.floor_by_name("slag_pool").unwrap();
+        let blocks = [
+            "iron_wall",
+            "gun_turret",
+            "conveyor",
+            "smelter",
+            "iron_wall",
+        ]
+        .map(|n| reg.block_by_name(n).unwrap());
+        let mut repairs = 0;
+        for seed in 1..=4u64 {
+            let mut rng = Rng::new(seed);
+            let (w, h) = (48, 32);
+            let mut world = World::new(&reg, w, h, ids.basalt, seed);
+            for _ in 0..60 {
+                let p = TilePos::new(rng.below(w) as i32, rng.below(h) as i32);
+                world.set_floor(p, slag);
+            }
+            let _ = world.apply(
+                &reg,
+                &Command::Place {
+                    block: ids.core,
+                    origin: TilePos::new(22, 14),
+                    rot: Dir::Right,
+                },
+            );
+            world.update_flow(&reg);
+            for step in 0..600 {
+                let at = TilePos::new(rng.below(w) as i32, rng.below(h) as i32);
+                let cmd = match rng.below(10) {
+                    0..=4 => Command::Place {
+                        block: blocks[rng.below(blocks.len() as u32) as usize],
+                        origin: at,
+                        rot: Dir::Right,
+                    },
+                    5 if rng.below(8) == 0 => Command::Place {
+                        block: ids.core,
+                        origin: at,
+                        rot: Dir::Right,
+                    },
+                    _ => Command::Remove { at },
+                };
+                let _ = world.apply(&reg, &cmd);
+                // обновлять поле не после каждой команды: изменения копятся, как между тиками
+                if rng.below(3) == 0 {
+                    if !world.flow.full && !world.flow.dirty.is_empty() {
+                        repairs += 1;
+                    }
+                    world.update_flow(&reg);
+                    let mut fresh = world.clone();
+                    fresh.rebuild_flow(&reg);
+                    assert!(
+                        world.flow.dist == fresh.flow.dist,
+                        "seed {seed} step {step}: repaired flow differs from a full rebuild"
+                    );
+                }
+            }
+        }
+        assert!(
+            repairs > 300,
+            "the repair path must actually run: {repairs}"
+        );
     }
 }

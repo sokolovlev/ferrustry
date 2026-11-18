@@ -225,6 +225,7 @@ pub fn generate(reg: &ContentRegistry, s: &MapSettings) -> Result<World, Scenari
         wave_spacing: spacing * tps,
     });
     world.grant(reg, ids.iron_ingot, STARTER_INGOTS);
+    world.prepare_flow(reg);
     Ok(world)
 }
 

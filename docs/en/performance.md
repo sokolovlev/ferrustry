@@ -22,7 +22,7 @@ Scenarios are Ferrustry maps generated deterministically from a seed (`ferrustry
 | B5 | Mass battle: 1,000 units, 300 turrets, thousands of projectiles | Combat, spatial grid | 4 |
 | B6 | 2048×2048 map with active logistics | Memory, chunks, cache | 5 |
 | B7 | Dedicated server, 8 and 32 bot clients | Networking, serialization | 6 |
-| B8 | Build/remove in a loop on a large base | Incremental rebuilds | 3 |
+| B8 | The B5 battle with a wall placed or removed on the enemies' path every 5 ticks | Local flow field repair | 4 |
 
 ## 3. Metrics
 
@@ -234,3 +234,21 @@ The first version of the burner gave **+1.3%** on B3: the generator loop became 
 The fix went further than "put it back": the output of fuel-less generators is constant, so
 it is computed once per power network rebuild (`PowerNet::steady`), and only fueled generators
 are visited each tick. As a result B3 is 6.4% faster than before. The B5 kill count (2397) did not change.
+
+### 2026-11-18 — P-10: overkill and local flow field repair
+
+Cloud VM, 1000 enemies against 300 turrets, the first 1500 ticks with no warm-up, 3 runs.
+
+| Scenario | Metric | Before | After |
+|---|---|---|---|
+| B5 | killed in 1500 ticks | 626 | **672** (+7.3%) — same ammo |
+| B5 | tick mean / max | 114 / ~1,500 µs | 112–129 / **172–410 µs** |
+| B8 | tick mean | 397–417 µs (full rebuild) | **127 µs** (3.2×) |
+| B8 | tick p99 | 1,576–2,129 µs | **256–262 µs** (6–8×) |
+| B8 | tick max | 1,795–3,687 µs | **284–301 µs** |
+
+- "Before" for B8 is the same binary with `--full-flow` (the field is rebuilt entirely on every
+  change). The state hash and the kill count **match** in both modes — the repair does not change the game.
+- The max spike in B5 was the first field build inside a tick. Now the field is built when the
+  map is created (`World::prepare_flow`; 1.6 ms once, outside the tick) and only repaired afterwards.
+- The economy is unaffected: B3 10k — 379,643 → 379,658 instructions/tick.

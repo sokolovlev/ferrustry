@@ -348,3 +348,52 @@ fn mixed_battle_is_deterministic_and_survives_save_load() {
     assert!(a.kills() > 0);
     a.validate(&reg).unwrap();
 }
+
+/// P-10: турели не тратят выстрелы на юнита, которого уже добьют снаряды в полёте.
+#[test]
+fn turrets_do_not_overkill() {
+    let reg = reg();
+    let gun = b(&reg, "gun_turret");
+    // пять пушек вокруг неподвижного ползуна (ядра нет — пути нет, юнит стоит)
+    let mut w = empty(&reg, 30, 20);
+    let spots = [(4, 8), (8, 3), (8, 14), (13, 4), (13, 13)];
+    let cmds: Vec<_> = spots
+        .iter()
+        .map(|&(x, y)| place(gun, x, y, Dir::Right))
+        .collect();
+    scenario::build(&mut w, &reg, &cmds).unwrap();
+    w.debug_fill_turrets(&reg);
+    let ammo = |w: &World| -> u32 {
+        spots
+            .iter()
+            .map(
+                |&(x, y)| match w.inspect(&reg, TilePos::new(x, y)).unwrap().detail {
+                    Detail::Turret { ammo } => ammo,
+                    d => panic!("{d:?}"),
+                },
+            )
+            .sum()
+    };
+    let full = ammo(&w);
+    let (x, y) = tile_center(10, 9);
+    w.spawn_unit(&reg, reg.unit_by_name("crawler").unwrap(), x, y);
+    for _ in 0..120 {
+        w.step(&reg);
+        w.validate(&reg).unwrap(); // учёт урона в полёте сходится каждый тик
+    }
+    assert_eq!(w.kills(), 1);
+    // 40 прочности / 12 урона = 4 снаряда; пятый не нужен
+    assert_eq!(full - ammo(&w), 4, "shots fired");
+}
+
+/// Учёт урона в полёте сходится каждый тик в настоящем бою с промахами и смертями.
+#[test]
+fn incoming_damage_bookkeeping_holds_in_battle() {
+    let reg = reg();
+    let mut w = scenario::bench_battle(&reg, 300, 60).unwrap();
+    for _ in 0..1500 {
+        w.step(&reg);
+        w.validate(&reg).unwrap();
+    }
+    assert!(w.kills() > 100, "kills {}", w.kills());
+}

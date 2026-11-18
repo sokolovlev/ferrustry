@@ -229,6 +229,15 @@ pub struct World {
     pub(crate) kills: u64,
     #[serde(skip)]
     pub(crate) unit_grid: crate::combat::Scratch<crate::combat::UnitGrid>,
+    /// Эталонный режим: поле путей всегда перестраивается целиком (бенчмарки, тесты).
+    #[serde(skip)]
+    pub(crate) flow_full_only: bool,
+    /// Буферы поля путей (служебное).
+    #[serde(skip)]
+    pub(crate) flow_scratch: crate::combat::Scratch<crate::combat::FlowScratch>,
+    /// Буферы переназначения индексов юнитов при удалении убитых (служебное).
+    #[serde(skip)]
+    pub(crate) unit_remap: crate::combat::Scratch<(Vec<u32>, Vec<u32>)>,
     rules: Rules,
     pub(crate) segments: Vec<Option<Segment>>,
     free_segments: Vec<u32>,
@@ -334,6 +343,9 @@ impl World {
             outcome: Default::default(),
             kills: 0,
             unit_grid: Default::default(),
+            unit_remap: Default::default(),
+            flow_scratch: Default::default(),
+            flow_full_only: false,
             rules: Rules::default(),
             segments: Vec::new(),
             free_segments: Vec::new(),
@@ -791,6 +803,7 @@ impl World {
             self.wake_drill(id);
         }
         if let Some(b) = self.buildings.get(id).cloned() {
+            self.flow_touch(&b);
             self.wake_adjacent_drills(&b);
             if tag != KindTag::Conveyor {
                 self.wake_perimeter(&b);
@@ -968,6 +981,7 @@ impl World {
         if refund {
             self.refund_cost(reg, b.block);
         }
+        self.flow_touch(&b);
         self.wake_adjacent_drills(&b);
         if let Some(seg) = old_segment {
             self.rebuild_conveyors_around(reg, at, &[seg]);
@@ -1822,6 +1836,12 @@ impl World {
         }
     }
 
+    /// Локальная починка поля путей (по умолчанию включена); выключенная — эталон: поле
+    /// перестраивается целиком при каждом изменении построек. Результат обязан совпадать.
+    pub fn set_incremental_flow(&mut self, enabled: bool) {
+        self.flow_full_only = !enabled;
+    }
+
     /// Включает эталонный режим без усыпления сегментов (для тестов: результат обязан совпадать).
     pub fn set_sleep_enabled(&mut self, enabled: bool) {
         self.no_sleep = !enabled;
@@ -2028,6 +2048,7 @@ impl World {
             u.vx.len(),
             u.vy.len(),
             u.hold.len(),
+            u.incoming.len(),
         ]
         .iter()
         .any(|&n| n != u.kind.len())
@@ -2045,12 +2066,14 @@ impl World {
             p.damage.len(),
             p.ttl.len(),
             p.hostile.len(),
+            p.target.len(),
         ]
         .iter()
         .any(|&n| n != p.x.len())
         {
             return Err("projectile arrays out of sync".into());
         }
+        self.check_incoming(reg)?;
         if self.timers.len() != TIMER_SLOTS {
             return Err("timer wheel size mismatch".into());
         }

@@ -70,7 +70,7 @@ See `docs/en/performance-design.md`, tasks P-01…P-10.
 | S3-03 (**done**: water, pipes, condenser, cooling tower; compartment model) | Fluids (D-09) | S1-07 |
 | S3-04 (**done**: forge heat output, slowdown above 70%, heat pipes, radiator, cooling tower, heat engine) | Heat as a network (if D-02 is approved) | S3-03 |
 | S4-01 (**done**) | Spatial grid, units (SoA/hecs, D-05), movement, separation | S1-04 |
-| S4-02 (**partial**: one field for ground units; incremental recompute — no) | Flow fields per movement class with incremental recompute | S4-01 |
+| S4-02 (**partial**: one field for ground units with local repair; movement classes — no) | Flow fields per movement class with incremental recompute | S4-01 |
 | S4-03 (**done**: gun, arc tower, armor, enemy projectiles) | Turrets, projectiles, damage, armor, building destruction | S4-01 |
 | S4-04 (**done**, wave composition in code) | Enemy waves | S4-02, S4-03 |
 | S5-01 (**partial**: generator and schematics; `.fmap` — no) | Map generator, `.fmap` format, `.fschem` schematics | S1-09 |

@@ -12,8 +12,8 @@ gets lost (that's how commit 18442a2 with a failing clippy got into the reposito
 | `ferrustry-sim/tests/stage3.rs` | Economy, splitter, sorter, bridge, batteries | Regression: the test for stale links after removal fails without the fix |
 | `ferrustry-sim/tests/thermal.rs` | Fluids and heat | Exact number of cycles when overheated (9 vs 50) |
 | `ferrustry-sim/tests/combat.rs` | Flow field, turrets, waves, defeat | Combat determinism and continuation after save/load |
-| `ferrustry-sim/tests/content.rs` | Fuel, depot, arc tower, armor, ranged enemies | Exact damage per tick; a mixed battle across save/load |
-| `ferrustry-sim/src/*` (unit tests) | Segments, PRNG, map generator, schematics | Generator guarantees on 36 maps; 4 schematic rotations = the original |
+| `ferrustry-sim/tests/content.rs` | Fuel, depot, arc tower, armor, ranged enemies, overkill | Exact damage per tick; a mixed battle across save/load; exactly 4 shots from five turrets at one crawler; damage-in-flight bookkeeping holds every battle tick |
+| `ferrustry-sim/src/*` (unit tests) | Segments, PRNG, map generator, schematics, flow field | Generator guarantees on 36 maps; 4 schematic rotations = the original; flow field repair ≡ full rebuild on random building |
 | `ferrustry-format` | Saves, replay, schematics | Round-trip and continuation with the same hash; corrupted and truncated files; different content; wrong version or file kind; locating a tampered command in a replay; schematics with name remapping |
 | `ferrustry-content` | Content validation, reference | The reference and guides don't fall behind the data; English docs mirror the Russian ones (see below) |
 | `ferrustry-render/tests/offscreen.rs` | Rendering a frame on the GPU | Brand colour pixels, the core emblem, the discharge glow; without a GPU — `SKIPPED` |
@@ -50,7 +50,8 @@ must be updated (the comments next to them explain the calculation).
 
 ## Performance
 
-- Time: `ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3|b5>`, the full suite with medians:
+- Time: `ferrustry-headless bench <b1|b2|b2-blocked|b2-comb|b3|b5|b8>` (`--full-flow` is the reference
+  without flow field repair; the state hash must match), the full suite with medians:
   `scripts/bench-suite.sh` (Windows: `scripts/bench-suite.ps1`). On a VM, time is noisy by ±10%.
 - **Instructions per tick** is a stable metric for comparing versions on one machine:
 

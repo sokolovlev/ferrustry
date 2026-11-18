@@ -110,5 +110,5 @@ Limitation: belts and drills blocked by crafters and cores don't sleep yet — t
 | P-06 | Parallel processing of logistics islands | Scaling across cores | B3 on 4/8 cores, determinism in CI |
 | P-07 (**Done**: B3) | B3 "megabase" scenario: production + logistics + power | A realistic target for P-01…P-06 | Report in `docs/benchmarks/results/` |
 | P-09 (**closed: false alarm**) | The suspected B2-comb regression turned out to be an error in the earlier measurement; re-measured: a1dd7ad 237,923, 93ae603 237,299 instructions/tick | — | — |
-| P-10 | Turrets: don't shoot a target that projectiles in flight will already kill ("overkill"); incremental flow field instead of a full Dijkstra on every build | Defence efficiency; remove the ~1.5 ms spike | B5: max tick < 500 µs |
+| P-10 (**Done** 2026-11-18: B5 max 172–410 µs, +7.3% kills) | Turrets: don't shoot a target that projectiles in flight will already kill ("overkill"); incremental flow field instead of a full Dijkstra on every build | Defence efficiency; remove the ~1.5 ms spike | B5: max tick < 500 µs |
 | P-08 | Performance regression control in CI (comparison with the previous commit by callgrind instructions — independent of VM noise) | Protection against degradation | +5% instructions threshold → warning |

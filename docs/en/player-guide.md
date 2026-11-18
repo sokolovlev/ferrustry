@@ -142,6 +142,9 @@ Composition of wave number N:
 | **Arc tower** 2×2 | Instant discharge, **ignores armor**, 36 damage/s | Power: 8/tick while recharging; at 50% power it fires half as often. Costs steel |
 | **Iron wall** 1×1 | 400 health, cheap | — |
 
+Turrets spread their fire: they don't shoot an enemy that shells already in flight will kill, and
+pick the next target instead — several turrets don't waste ammo on a single crawler.
+
 Tip: run an ingot belt to your gun turrets in advance — without ammo a turret stays silent. Against later
 waves, put arc towers behind the line of guns and don't forget the power.
 

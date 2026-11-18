@@ -545,6 +545,7 @@ pub fn bench_battle(
         ring += 3;
     }
     w.debug_fill_turrets(reg);
+    w.prepare_flow(reg);
     for i in 0..units as i32 {
         let t = i * 4 * (side - 4) / units.max(1) as i32;
         let (x, y) = match t / (side - 4) {
@@ -562,4 +563,36 @@ pub fn bench_battle(
         );
     }
     Ok(w)
+}
+
+/// B8: команда стройки на этом тике боя `bench_battle` — каждые 5 тиков стена ставится или
+/// сносится в очередной точке кольца на пути врагов (снаружи колец турелей).
+pub fn battle_build_command(w: &World, reg: &ContentRegistry) -> Option<Command> {
+    let t = w.tick_count();
+    if !t.is_multiple_of(5) {
+        return None;
+    }
+    let side = w.grid().width() as i32;
+    let (c, r) = (side / 2, side / 2 - 30);
+    let spots: Vec<TilePos> = (-r..=r)
+        .step_by(4)
+        .flat_map(|k| {
+            [
+                TilePos::new(c + k, c - r),
+                TilePos::new(c + r, c + k),
+                TilePos::new(c - k, c + r),
+                TilePos::new(c - r, c - k),
+            ]
+        })
+        .collect();
+    let at = spots[(t / 5) as usize % spots.len()];
+    if w.grid().building(at).is_some() {
+        Some(Command::Remove { at })
+    } else {
+        Some(Command::Place {
+            block: reg.block_by_name("iron_wall")?,
+            origin: at,
+            rot: Dir::Right,
+        })
+    }
 }
