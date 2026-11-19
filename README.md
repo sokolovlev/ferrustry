@@ -64,6 +64,7 @@ cargo run --release -p ferrustry-headless -- run
 Разработчикам и авторам контента:
 - [Разработка](docs/development/README.md) и [тестирование](docs/development/testing.md)
 - [Формат контента](docs/content-format.md) — как добавить постройку или врага
+- [Отчёт о балансе](docs/balance/2026-11-19-normal.md) — кривая сложности из прогонов
 - [Архитектура](docs/architecture.md)
 - [Анализ жанра](docs/genre-analysis.md)
 - [Совместимость](docs/compatibility.md)

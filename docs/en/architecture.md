@@ -340,3 +340,16 @@ editing data, with the result visible immediately.
 | Data | `noise` on buildings and the `noise` section in `base.ron`; noise on kinds that cannot make it is a validator error |
 | UI | `NOISE n (+x%)` / `QUIET` under the wave timer; a building's noise is in the panel tooltip |
 | Cost | One load and addition per working building per tick: B3-10k 330,503 → 338,748 instructions/tick (+2.5%) |
+
+## 23. Balance tool (2026-11-19)
+
+`ferrustry-headless balance` builds the difficulty curve from real runs (`ferrustry-sim::balance`):
+
+| Part | How |
+|---|---|
+| Defence trial | The real wave N (composition from data, spawn points, spread) against K guns or arc towers in rings around the core on a 64×64 arena; ammo is refilled every tick and its use counted; 3 spawn spreads, it must hold in all; the smallest K by binary search |
+| Wave arrival | From the difficulty rules and the noise rule at constant noise |
+| Economy | A production cell of the B3 megabase: output over 10 minutes, noise, cost — measured |
+| Synthesis | The smallest number of cells that pays for the defence by the wave's arrival, given that their noise speeds the waves up |
+
+The report is Markdown in two languages; snapshots live in `docs/balance/` with a date. A full run of 20 waves takes ~2 s.

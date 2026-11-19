@@ -68,6 +68,8 @@
 - Аллокации на тик и пиковая память — в выводе `bench` (`allocations_per_tick`, `peak_rss_kib`).
 - Многопоточность: `--example parallel_ceiling` (потолок ускорения при владении данными) и
   `--example fork_join_cost` (цена вызова пула потоков) в `ferrustry-headless`.
+- Баланс: `cargo run --release -p ferrustry-headless -- balance [--difficulty easy|normal|hard]
+  [--waves N] [--lang ru|en] [--out FILE]` — кривая сложности из прогонов (`docs/balance/`).
 - Рефакторинг раскладки данных: `--example behaviour_fingerprint` печатает отпечаток наблюдаемого
   поведения B3 (через публичный API, не зависит от формата сохранений). Соберите его на старой и
   новой версии — вывод обязан совпасть.

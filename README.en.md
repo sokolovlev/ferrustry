@@ -64,6 +64,7 @@ For players:
 For developers and content authors:
 - [Development](docs/en/development/README.md) and [testing](docs/en/development/testing.md)
 - [Content format](docs/en/content-format.md) — how to add a building or an enemy
+- [Balance report](docs/en/balance/2026-11-19-normal.md) — the difficulty curve from real runs
 - [Architecture](docs/en/architecture.md)
 - [Genre analysis](docs/en/genre-analysis.md)
 - [Compatibility](docs/en/compatibility.md)

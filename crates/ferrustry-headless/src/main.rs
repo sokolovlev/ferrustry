@@ -1,6 +1,7 @@
 //! Headless-запуск Ferrustry: сценарии, бенчмарки и проверка сохранений.
 
 mod alloc;
+mod balance;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -28,6 +29,8 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless record --out FILE [--seed S] [--ticks N] [--size N] [--checkpoint-every N]
                                                     записать партию (случайная стройка)
   ferrustry-headless replay FILE                      воспроизвести и сверить контрольные точки
+  ferrustry-headless balance [--difficulty easy|normal|hard] [--waves N] [--lang ru|en] [--out FILE]
+                                                    отчёт о балансе: кривая сложности
 ";
 
 struct Args {
@@ -155,6 +158,28 @@ fn real_main(args: &mut Args) -> Result<(), String> {
             } else {
                 Err("hash mismatch".into())
             }
+        }
+        "balance" => {
+            let difficulty = match args.value("--difficulty")?.as_deref() {
+                None | Some("normal") => ferrustry_sim::mapgen::Difficulty::Normal,
+                Some("easy") => ferrustry_sim::mapgen::Difficulty::Easy,
+                Some("hard") => ferrustry_sim::mapgen::Difficulty::Hard,
+                Some(other) => return Err(format!("unknown difficulty `{other}`")),
+            };
+            let waves = u32::try_from(args.number("--waves", 20)?).map_err(|e| e.to_string())?;
+            let en = match args.value("--lang")?.as_deref() {
+                None | Some("ru") => false,
+                Some("en") => true,
+                Some(other) => return Err(format!("unknown language `{other}`")),
+            };
+            let out = args.value("--out")?;
+            args.finish()?;
+            let text = balance::report(&reg, difficulty, waves, en)?;
+            match out {
+                Some(path) => std::fs::write(&path, &text).map_err(|e| format!("{path}: {e}"))?,
+                None => print!("{text}"),
+            }
+            Ok(())
         }
         "bench" => {
             let name = args.positional().ok_or("bench requires a scenario name")?;

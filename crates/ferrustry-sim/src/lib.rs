@@ -5,6 +5,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod balance;
 pub mod buildings;
 pub mod combat;
 pub mod geom;

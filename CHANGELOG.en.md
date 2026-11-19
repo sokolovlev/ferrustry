@@ -5,6 +5,14 @@
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0,
 saves are incompatible between minor versions (the game reports a format version mismatch).
 
+## Unreleased
+
+### Added
+- **Balance tool** `ferrustry-headless balance`: the difficulty curve from real runs — how many guns
+  and arc towers hold each wave, ammo use, arrival time at different noise levels and how many
+  production cells are needed to pay for the defence. First report:
+  `docs/en/balance/2026-11-19-normal.md`.
+
 ## 0.7.0 — 2026-11-19
 
 Save format 7.0.
