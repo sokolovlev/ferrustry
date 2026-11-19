@@ -254,7 +254,7 @@ pub struct World {
     #[serde(skip)]
     pub(crate) unit_remap: crate::combat::Scratch<(Vec<u32>, Vec<u32>)>,
     rules: Rules,
-    pub(crate) segments: Vec<Option<Segment>>,
+    pub(crate) segments: crate::segment::Segments,
     free_segments: Vec<u32>,
     /// Битсет бодрствующих сегментов (бит на сегмент).
     seg_awake: Vec<u64>,
@@ -363,7 +363,7 @@ impl World {
             flow_full_only: false,
             drill_rows: Default::default(),
             rules: Rules::default(),
-            segments: Vec::new(),
+            segments: Default::default(),
             free_segments: Vec::new(),
             seg_awake: Vec::new(),
             no_sleep: false,
@@ -447,8 +447,8 @@ impl World {
     }
 
     /// Активные сегменты конвейеров.
-    pub fn segments(&self) -> impl Iterator<Item = &Segment> {
-        self.segments.iter().flatten()
+    pub fn segments(&self) -> impl Iterator<Item = crate::segment::SegRef<'_>> {
+        self.segments.iter()
     }
 
     /// Задать пол тайла (генерация карты).
@@ -1059,11 +1059,12 @@ impl World {
 
     fn alloc_segment(&mut self, seg: Segment) -> u32 {
         let i = if let Some(i) = self.free_segments.pop() {
-            self.segments[i as usize] = Some(seg);
+            self.segments.place(i as usize, seg);
             i
         } else {
-            self.segments.push(Some(seg));
-            u32::try_from(self.segments.len() - 1).unwrap_or(NO_SEGMENT)
+            let i = self.segments.len();
+            self.segments.place(i, seg);
+            u32::try_from(i).unwrap_or(NO_SEGMENT)
         };
         let words = self.segments.len().div_ceil(64);
         if self.seg_awake.len() < words {
@@ -1091,22 +1092,23 @@ impl World {
         // Разобрать сегменты, запомнив предметы по тайлам.
         let mut tile_items: BTreeMap<TilePos, Vec<(ItemId, u32)>> = BTreeMap::new();
         for s in dissolve {
-            let Some(mut seg) = self.segments.get_mut(s as usize).and_then(Option::take) else {
+            let Some(mut seg) = self.segments.get_mut(s as usize) else {
                 continue;
             };
-            self.free_segments.push(s);
-            self.sleep_segment(s as usize);
-            for wt in std::mem::take(&mut seg.waiters) {
-                self.wake(wt.who);
-            }
-            let seg_tiles = std::mem::take(&mut seg.tiles);
-            seg.tiles.clone_from(&seg_tiles);
+            let waiters = std::mem::take(&mut seg.waiters);
+            let seg_tiles = seg.tiles.clone();
             seg.drain_by_tile(|k, item, off| {
                 tile_items
                     .entry(seg_tiles[k])
                     .or_default()
                     .push((item, off))
             });
+            self.segments.remove(s as usize);
+            self.free_segments.push(s);
+            self.sleep_segment(s as usize);
+            for wt in waiters {
+                self.wake(wt.who);
+            }
             tiles.extend(seg_tiles);
         }
 
@@ -1199,15 +1201,17 @@ impl World {
                 }
             }
             items.sort_by_key(|&(_, pos)| pos);
-            let mut seg = Segment::new(piece.to_vec(), out_dir, speed);
-            let lost = seg.fill_sorted(items.iter().copied());
+            let s = self.alloc_segment(Segment::new(piece.to_vec(), out_dir, speed));
+            let lost = self
+                .segments
+                .get_mut(s as usize)
+                .map_or(0, |mut seg| seg.fill_sorted(items.iter().copied()));
             if lost > 0 {
                 // предметы, не поместившиеся при слиянии, уничтожаются (крайний случай)
                 for &(item, _) in items.iter().rev().take(lost as usize) {
                     Stats::bump(&mut self.stats.destroyed, item, 1);
                 }
             }
-            let s = self.alloc_segment(seg);
             for (k, p) in piece.iter().enumerate() {
                 if let Some(row) = self.conveyor_row_mut(*p) {
                     row.segment = s;
@@ -1286,7 +1290,7 @@ impl World {
             Link::Building(id) => self.offer_building(reg, id, item),
             Link::Directed { id, side } => self.offer_directed(reg, id, side, item),
             Link::Segment { seg, k, behind } => {
-                let Some(sg) = self.segments.get_mut(seg as usize).and_then(Option::as_mut) else {
+                let Some(mut sg) = self.segments.get_mut(seg as usize) else {
                     return false;
                 };
                 let ok = if behind {
@@ -1671,7 +1675,7 @@ impl World {
     }
 
     fn update_segment(&mut self, reg: &ContentRegistry, i: usize) {
-        let Some(seg) = self.segments.get(i).and_then(Option::as_ref) else {
+        let Some(seg) = self.segments.get(i) else {
             self.sleep_segment(i);
             return;
         };
@@ -1684,7 +1688,7 @@ impl World {
                 seg.link
             } else {
                 let link = self.resolve_link(tail.step(seg.out_dir), tail);
-                if let Some(sm) = self.segments.get_mut(i).and_then(Option::as_mut) {
+                if let Some(mut sm) = self.segments.get_mut(i) {
                     sm.link = link;
                     sm.link_epoch = self.topo_epoch;
                 }
@@ -1693,25 +1697,28 @@ impl World {
             delivered = self.deliver(reg, link, item);
             target = Some(link);
         }
-        let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) else {
+        // Один вид сегмента на выдачу, сдвиг и решение о сне (P-03: каждый вид — проверки
+        // границ пула). Будить ожидающих можно после сдвига: это трогает только их биты и список
+        // ожидающих этого сегмента, но не его предметы.
+        let Some(mut seg) = self.segments.get_mut(i) else {
             return;
         };
+        let mut release = None;
         if delivered {
             let was_blocked = seg.compressed_len() > 0;
             seg.pop_front();
-            let front_free = seg.front_free();
-            self.release_waiters(i, was_blocked, front_free);
+            release = Some((was_blocked, seg.front_free()));
         }
-        let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) else {
-            return;
-        };
         let moved = seg.advance();
         if delivered || moved {
+            if let Some((was_blocked, front_free)) = release {
+                self.release_waiters(i, was_blocked, front_free);
+            }
             return;
         }
-        // Ничего не изменилось: можно ли уснуть без изменения поведения?
         let empty = seg.item_count() == 0;
         let stuck = seg.is_fully_compressed();
+        // Ничего не изменилось: можно ли уснуть без изменения поведения?
         match target {
             None if empty => self.sleep_segment(i),
             Some(Link::Nothing | Link::Refuses) if stuck => self.sleep_segment(i),
@@ -1730,7 +1737,7 @@ impl World {
     /// по нижней оценке. Возвращает `false`, если сегмента нет.
     fn wait_on_segment(&mut self, who: Sleeper, t: u32, k: u32, behind: bool) -> bool {
         let now = self.tick;
-        let Some(ts) = self.segments.get_mut(t as usize).and_then(Option::as_mut) else {
+        let Some(mut ts) = self.segments.get_mut(t as usize) else {
             return false;
         };
         let pos = ts.insert_pos(k as usize, behind);
@@ -1750,7 +1757,7 @@ impl World {
     /// Если лента была заблокирована (часть предметов стояла), её движение меняется — будим всех;
     /// иначе — только тех, кому хватит освободившегося места у выхода.
     fn release_waiters(&mut self, i: usize, was_blocked: bool, front_free: u32) {
-        let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) else {
+        let Some(mut seg) = self.segments.get_mut(i) else {
             return;
         };
         if seg.waiters.is_empty() {
@@ -1765,7 +1772,7 @@ impl World {
             }
             !wake
         });
-        if let Some(seg) = self.segments.get_mut(i).and_then(Option::as_mut) {
+        if let Some(mut seg) = self.segments.get_mut(i) {
             seg.waiters = ws; // ёмкость сохраняется: без аллокаций в стационарном режиме
         }
     }
@@ -1853,7 +1860,7 @@ impl World {
     }
 
     fn sleep_segment(&mut self, s: usize) {
-        if self.no_sleep && self.segments.get(s).is_some_and(Option::is_some) {
+        if self.no_sleep && self.segments.is_live(s) {
             return;
         }
         if let Some(w) = self.seg_awake.get_mut(s / 64) {
@@ -1882,7 +1889,7 @@ impl World {
     pub fn set_sleep_enabled(&mut self, enabled: bool) {
         self.no_sleep = !enabled;
         for i in 0..self.segments.len() {
-            if self.segments[i].is_some() {
+            if self.segments.is_live(i) {
                 self.wake_segment(i as u32);
             }
         }
@@ -1914,7 +1921,7 @@ impl World {
     pub fn debug_fill_conveyors(&mut self, item: ItemId, spacing: u32) {
         let spacing = spacing.max(crate::segment::ITEM_SPACING);
         let mut spawned = 0u64;
-        for seg in self.segments.iter_mut().flatten() {
+        self.segments.for_each_mut(|mut seg| {
             let len = seg.len_units();
             let mut pos = len;
             loop {
@@ -1926,7 +1933,7 @@ impl World {
                 }
                 pos -= spacing;
             }
-        }
+        });
         Stats::bump(&mut self.stats.spawned, item, spawned);
         for i in 0..self.segments.len() {
             self.wake_segment(i as u32);
@@ -2165,8 +2172,7 @@ impl World {
         if self.seg_awake.len() < self.segments.len().div_ceil(64) {
             return Err("awake bitset too short".into());
         }
-        for (i, seg) in self.segments.iter().enumerate() {
-            let Some(seg) = seg else { continue };
+        for (i, seg) in self.segments.enumerate() {
             seg.validate()?;
             if seg.link_epoch == self.topo_epoch
                 && let Some(&tail) = seg.tiles.last()
@@ -2194,11 +2200,7 @@ impl World {
             }
         }
         for row in &self.conveyors.rows {
-            if self
-                .segments
-                .get(row.segment as usize)
-                .is_none_or(Option::is_none)
-            {
+            if !self.segments.is_live(row.segment as usize) {
                 return Err("conveyor without segment".into());
             }
         }
@@ -2360,9 +2362,8 @@ impl World {
                 Detail::Conveyor {
                     items_on_segment: self
                         .segments
-                        .get(s as usize)?
-                        .as_ref()
-                        .map_or(0, Segment::item_count),
+                        .get(s as usize)
+                        .map_or(0, |seg| seg.item_count()),
                 }
             }
             (_, KindTag::Drill) => {
@@ -2533,12 +2534,67 @@ mod tests {
         // испортить строку получателя в действующем кэше выхода ленты
         let seg = w
             .segments
-            .iter_mut()
-            .flatten()
+            .records_mut()
             .find(|s| matches!(s.link, Link::Building(_)))
             .unwrap();
         seg.link = Link::Refuses;
         let err = w.validate(&reg).unwrap_err();
         assert!(err.contains("stale output link"), "{err}");
+    }
+
+    /// P-03: массовая перестройка лент с предметами уплотняет пул, не теряя и не создавая
+    /// предметов; инварианты сегментов держатся на каждом шаге.
+    #[test]
+    fn belt_rebuilds_compact_the_pool_without_losing_items() {
+        let reg = ContentRegistry::base().unwrap();
+        let ids = BaseIds::resolve(&reg).unwrap();
+        let mut w = World::new(&reg, 120, 70, ids.basalt, 3);
+        // 60 параллельных лент по 100 тайлов (по 4 сегмента)
+        let cmds: Vec<Command> = (0..60)
+            .flat_map(|y| {
+                (0..100).map(move |x| Command::Place {
+                    block: ids.conveyor,
+                    origin: TilePos::new(x, y),
+                    rot: Dir::Right,
+                })
+            })
+            .collect();
+        scenario::build(&mut w, &reg, &cmds).unwrap();
+        w.debug_fill_conveyors(ids.iron_ore, 64);
+        let total = |w: &World| -> u64 {
+            let s = w.stats();
+            let i = usize::from(ids.iron_ore.0);
+            s.spawned[i] - s.destroyed[i]
+        };
+        let peak = w.segments.pool_len();
+        let mut rng = crate::rng::Rng::new(11);
+        let mut shrank = false;
+        for round in 0..400 {
+            // снести и поставить заново случайный тайл: сегменты разбираются и собираются
+            let at = TilePos::new(rng.below(100) as i32, rng.below(60) as i32);
+            w.apply(&reg, &Command::Remove { at }).unwrap();
+            w.apply(
+                &reg,
+                &Command::Place {
+                    block: ids.conveyor,
+                    origin: at,
+                    rot: Dir::Right,
+                },
+            )
+            .unwrap();
+            w.step(&reg);
+            if round % 20 == 0 {
+                w.validate(&reg).unwrap();
+            }
+            shrank |= w.segments.pool_len() < peak;
+            let on_belts: u64 = w.items_on_conveyors().iter().sum();
+            assert_eq!(
+                on_belts,
+                total(&w),
+                "round {round}: items appeared or vanished"
+            );
+        }
+        w.validate(&reg).unwrap();
+        assert!(shrank, "the pool must have been compacted at least once");
     }
 }

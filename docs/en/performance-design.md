@@ -104,7 +104,7 @@ Limitation: belts and drills blocked by crafters and cores don't sleep yet — t
 |---|---|---|---|
 | P-01 (**Done**) | Precise wake-up on side insertion: a branch sleeps until a gap appears at the insertion point on the target belt | The main remainder of B2-comb: ~12k segments awake doing nothing | B2-comb-100k: awake segments ≤ 10%, differential test green |
 | P-02 (**Partial**: drills; crafters — no) | Sleeping drills and crafters with a full buffer and all receivers refusing | Jammed drills stop ticking | Same |
-| P-03 | Segment arena: hot fields (head, len, compressed, tail, speed) in a separate dense array; items of all segments in one pool | Fewer cache misses per segment | cachegrind: D1 misses per awake segment ↓ |
+| P-03 (**Partial** 2026-11-19: shared item pool; hot record fields — no) | Segment arena: hot fields (head, len, compressed, tail, speed) in a separate dense array; items of all segments in one pool | Fewer cache misses per segment | cachegrind: D1 misses per awake segment ↓ |
 | P-04 (**Partial** 2026-11-18: crafters and drills) | Building tables in SoA, narrow buffer types | Denser pass over drills/crafters | B3: tick time ↓ — −14% (10k) and −22% (100k), L1 misses −38% |
 | P-05 | Bounds check elimination in hot loops | −10% instructions in B2-comb | callgrind |
 | P-06 (**Investigated** 2026-11-18, see section 8; implementation awaits D-17) | Parallel processing | Scaling across cores | B3 on 4/8 cores, determinism in CI |
@@ -211,3 +211,39 @@ records lie contiguously and are prefetched; the buffers sit at random heap addr
 prefetching does not help. The next step is **P-03**: the items of all segments in one contiguous
 pool in segment order, the segment's hot fields in a dense array. A separate rework of
 `segment.rs` with its own randomized tests.
+
+**P-03: a shared item pool for belts (2026-11-19).**
+
+The hypothesis was checked before the rework: if the item buffers of all segments are re-allocated
+contiguously in index order, the B3-100k tick is ~11% faster (585 → 520 µs). Then the pool:
+
+- `Segments` in `segment.rs`: segment records by index and **one item array**; each segment has its own
+  range of exact capacity. A new segment gets a range at the end of the pool; when freed ranges
+  exceed a quarter of the pool, it is compacted in index order. The tick visits segments in
+  increasing index order, so items are read almost sequentially and the CPU prefetches them.
+- The segment record keeps only metadata; items are handled through the `SegRef`/`SegMut` views
+  (record + its slice of the pool). The belt logic was moved unchanged.
+- The save format did not change: a segment is written as the same list of `(item, gap)`. The state
+  hash **matches bit for bit** with the previous version on B2, B2-comb, B3, B5, B8; so does the
+  behaviour fingerprint.
+- The first version slowed down a small base (B3-10k +6.5%): after switching to the pool, a belt
+  update created a segment view three times and always read the fields for the sleep decision.
+  Two views instead of three and a lazy check brought instructions back to the previous level.
+
+| Scenario (median of 5 alternating runs) | Before | After |
+|---|---|---|
+| B2-comb 10k | 13.7 µs | **11.1 µs (−19%)** |
+| B2-comb 100k | 249 µs | **200 µs (−20%)** |
+| B3 100k | 512 µs | 489 µs (−5%) |
+| B3 10k, B2 100k | 21.8 / 33.5 µs | unchanged |
+
+Instructions are almost the same (+0.2…0.5%), misses in the cachegrind model −2…3% — yet the time
+is 5–20% lower: the gain comes from hardware prefetching of the sequential pool, which cachegrind
+does not model. Lesson for the methodology: for layout changes, time on hardware decides, and
+cachegrind shows only a lower bound of the effect.
+
+Tests: pool compaction over 4,000 random steps does not change contents and lays ranges out by
+index; 400 rebuilds of belts carrying items — no item appeared or vanished, the pool was compacted.
+
+Next for P-03: the hot fields of the segment record (`head`, `len`, `compressed`, `tail_pos`, `speed`)
+in a dense array separate from the cold ones (`tiles`, `waiters`, `link`).

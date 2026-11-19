@@ -292,3 +292,14 @@ Cloud VM, B3, behaviour and state hash unchanged. Details: `docs/en/performance-
 |---|---|---|
 | Link carrying the receiver's row (**rolled back**) | 85,464 → 84,785 (−0.8%) | unchanged |
 | Merging the power network passes (4 → 2) | 85,464 → 75,451 (−11.7%) | 10k: 22.6 → 22.0 µs; 100k: within noise |
+
+### 2026-11-19 — P-03: a shared item pool for belts
+
+Cloud VM, medians of 5 alternating runs; state hash and behaviour unchanged.
+
+| Scenario | Before | After |
+|---|---|---|
+| B2-comb 10k / 100k | 13.7 / 249 µs | 11.1 / 200 µs (−19% / −20%) |
+| B3 10k / 100k | 21.8 / 512 µs | 21.8 / 489 µs (0 / −5%) |
+| B2 100k | 33.5 µs | 33.5 µs |
+| Instructions/tick B3-100k / B2-comb-100k | 3,304,181 / 2,912,672 | 3,309,027 / 2,927,852 |

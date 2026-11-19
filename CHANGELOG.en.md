@@ -8,6 +8,8 @@ saves are incompatible between minor versions (the game reports a format version
 ## Unreleased
 
 ### Changed
+- **Belts are 19–20% faster** in the realistic B2-comb scenario, the B3-100k megabase by 5%: the items
+  of all belts live in one contiguous pool (P-03). Behaviour and the save format did not change.
 - The power balance walks the networks twice per tick instead of four times (same behaviour).
 - `World::validate` checks that the live link caches and the drill row table match a fresh
   calculation.

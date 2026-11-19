@@ -320,3 +320,13 @@ first, growth every N waves" (`WaveRule::count_in`). `World::wave_composition` o
 The move did not change the game: a test compares waves 1–60 with the former formulas from code. The content
 reference shows how many enemies arrive in waves 1, 5, 10 and 20 — wave balance is tuned by
 editing data, with the result visible immediately.
+
+## 21. Belt item pool (P-03, 2026-11-19)
+
+| What | Essence |
+|---|---|
+| Storage | `Segments`: segment records by index + one item array; a segment has a range `[base, base + cap)` of exact capacity |
+| Access | Views `SegRef` (read) and `SegMut` (write): record + its slice of the pool; record fields are reachable through `Deref` |
+| Allocation | A new segment gets a range at the end of the pool; freed ranges accumulate; when holes > ¼ of the pool, it is compacted in index order (deterministic, unobservable) |
+| Saving | As before — a list of `(item, gap)` per segment; the bytes and the state hash do not depend on the layout |
+| Public API | `World::segments()` yields `SegRef` with the same methods (`tiles`, `items`, `item_positions`, `item_count`) |
