@@ -1681,12 +1681,14 @@ impl World {
         };
         let mut target = None;
         let mut delivered = false;
-        if let Some(item) = seg.ready_front()
-            && let Some(&tail) = seg.tiles.last()
-        {
+        if let Some(item) = seg.ready_front() {
+            // последний тайл (отдельный массив в куче) нужен только для пересчёта связи
             let link = if seg.link_epoch == self.topo_epoch {
                 seg.link
             } else {
+                let Some(&tail) = seg.tiles.last() else {
+                    return;
+                };
                 let link = self.resolve_link(tail.step(seg.out_dir), tail);
                 if let Some(mut sm) = self.segments.get_mut(i) {
                     sm.link = link;

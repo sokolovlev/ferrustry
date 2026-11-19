@@ -104,7 +104,7 @@ Limitation: belts and drills blocked by crafters and cores don't sleep yet — t
 |---|---|---|---|
 | P-01 (**Done**) | Precise wake-up on side insertion: a branch sleeps until a gap appears at the insertion point on the target belt | The main remainder of B2-comb: ~12k segments awake doing nothing | B2-comb-100k: awake segments ≤ 10%, differential test green |
 | P-02 (**Partial**: drills; crafters — no) | Sleeping drills and crafters with a full buffer and all receivers refusing | Jammed drills stop ticking | Same |
-| P-03 (**Partial** 2026-11-19: shared item pool; hot record fields — no) | Segment arena: hot fields (head, len, compressed, tail, speed) in a separate dense array; items of all segments in one pool | Fewer cache misses per segment | cachegrind: D1 misses per awake segment ↓ |
+| P-03 (**Done** 2026-11-19: shared item pool; a separate hot-field array was tried and rejected) | Segment arena: hot fields (head, len, compressed, tail, speed) in a separate dense array; items of all segments in one pool | Fewer cache misses per segment | cachegrind: D1 misses per awake segment ↓ |
 | P-04 (**Partial** 2026-11-18: crafters and drills) | Building tables in SoA, narrow buffer types | Denser pass over drills/crafters | B3: tick time ↓ — −14% (10k) and −22% (100k), L1 misses −38% |
 | P-05 | Bounds check elimination in hot loops | −10% instructions in B2-comb | callgrind |
 | P-06 (**Investigated** 2026-11-18, see section 8; implementation awaits D-17) | Parallel processing | Scaling across cores | B3 on 4/8 cores, determinism in CI |
@@ -245,5 +245,14 @@ cachegrind shows only a lower bound of the effect.
 Tests: pool compaction over 4,000 random steps does not change contents and lays ranges out by
 index; 400 rebuilds of belts carrying items — no item appeared or vanished, the pool was compacted.
 
-Next for P-03: the hot fields of the segment record (`head`, `len`, `compressed`, `tail_pos`, `speed`)
-in a dense array separate from the cold ones (`tiles`, `waiters`, `link`).
+**Hot fields of the segment record — tried and rejected.** A record is 104 bytes; the compiler
+already groups the hot fields (offsets 56–100), but with a 104-byte stride that block often crosses a
+cache line boundary. Cheap experiment: `#[repr(C, align(64))]` with the hot fields first — the block
+always fits one line, the record is 128 bytes. Result: worse — B3-100k median 392 → 519 µs,
+B2-comb-100k 206 → 226, B3-10k 21.9 → 22.0. Records are already read sequentially and prefetched; the
+extra 23% of memory costs more than the saved lines. A full split into hot and cold arrays would give a
+gain of the same nature, so it is not done.
+
+One small improvement is kept: a segment's last tile (a separate heap array) is read only when the
+link is recomputed, not on every item hand-off — instructions −1.3% (B2-comb-10k) and −0.7% (B3-10k),
+time within noise.

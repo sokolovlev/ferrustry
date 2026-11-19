@@ -303,3 +303,10 @@ Cloud VM, medians of 5 alternating runs; state hash and behaviour unchanged.
 | B3 10k / 100k | 21.8 / 512 µs | 21.8 / 489 µs (0 / −5%) |
 | B2 100k | 33.5 µs | 33.5 µs |
 | Instructions/tick B3-100k / B2-comb-100k | 3,304,181 / 2,912,672 | 3,309,027 / 2,927,852 |
+
+### 2026-11-19 — P-03: segment hot fields (rejected)
+
+| Experiment | B3-100k | B2-comb-100k | B3-10k |
+|---|---|---|---|
+| Segment record `repr(C, align(64))`, hot fields first (**rolled back**) | 392 → 519 µs | 206 → 226 µs | 21.9 → 22.0 µs |
+| Last tile read only when the link is recomputed (kept) | within noise | within noise | instructions −0.7% |
