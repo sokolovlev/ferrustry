@@ -96,6 +96,8 @@ struct RawContent {
     units: Vec<RawUnit>,
     #[serde(default)]
     waves: Vec<RawWave>,
+    #[serde(default)]
+    noise: RawNoise,
     ores: Vec<RawOre>,
     blocks: Vec<RawBlock>,
 }
@@ -130,7 +132,17 @@ struct RawBlock {
     /// 0 — по умолчанию (60 × площадь).
     #[serde(default)]
     health: u32,
+    /// Шум за тик работы (D-02).
+    #[serde(default)]
+    noise: u32,
     kind: RawKind,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNoise {
+    speedup_per_unit: u32,
+    max_speedup: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -487,8 +499,30 @@ pub struct BlockDef {
     pub cost: Vec<ItemStack>,
     /// Прочность.
     pub health: u32,
+    /// Шум за тик работы: ускоряет таймер волн (D-02). Учитывается у буров, производств и
+    /// топливных генераторов.
+    pub noise: u32,
     /// Поведение.
     pub kind: BlockKind,
+}
+
+/// Как шум базы ускоряет таймер волн (D-02): каждая единица шума — `speedup_per_unit` тысячных
+/// к скорости таймера, но не больше `max_speedup` тысячных. 0 и 0 — шум не влияет.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoiseRule {
+    /// Ускорение таймера на единицу шума, тысячные.
+    pub speedup_per_unit: u32,
+    /// Предел ускорения, тысячные (1500 — таймер идёт до 2,5 раза быстрее).
+    pub max_speedup: u32,
+}
+
+impl NoiseRule {
+    /// Скорость таймера волн при шуме `noise`, тысячные (1000 — обычная).
+    pub fn timer_rate(&self, noise: u32) -> u32 {
+        1000 + noise
+            .saturating_mul(self.speedup_per_unit)
+            .min(self.max_speedup)
+    }
 }
 
 /// ID типа юнита.
@@ -599,6 +633,7 @@ pub struct ContentRegistry {
     units: Vec<UnitDef>,
     unit_names: HashMap<String, UnitTypeId>,
     waves: Vec<WaveRule>,
+    noise: NoiseRule,
     fluids: Vec<FluidDef>,
     fluid_names: HashMap<String, FluidId>,
     floor_names: HashMap<String, FloorId>,
@@ -1014,11 +1049,25 @@ impl ContentRegistry {
             } else {
                 block.health
             };
+            if block.noise > 0
+                && !matches!(
+                    kind,
+                    BlockKind::Drill { .. }
+                        | BlockKind::Crafter { .. }
+                        | BlockKind::Generator { fuel: Some(_), .. }
+                )
+            {
+                return Err(ContentError::Invalid {
+                    path: p("noise"),
+                    reason: "only drills, crafters and fueled generators make noise".into(),
+                });
+            }
             blocks.push(BlockDef {
                 name: block.name,
                 size: block.size,
                 cost,
                 health,
+                noise: block.noise,
                 kind,
             });
         }
@@ -1051,6 +1100,10 @@ impl ContentRegistry {
             units,
             unit_names,
             waves,
+            noise: NoiseRule {
+                speedup_per_unit: raw.noise.speedup_per_unit,
+                max_speedup: raw.noise.max_speedup,
+            },
             fluids,
             fluid_names,
             floor_names,
@@ -1119,6 +1172,11 @@ impl ContentRegistry {
     /// Правила состава волн в порядке файла контента.
     pub fn waves(&self) -> &[WaveRule] {
         &self.waves
+    }
+
+    /// Как шум базы ускоряет волны.
+    pub fn noise_rule(&self) -> NoiseRule {
+        self.noise
     }
 
     /// Тип юнита. Паникует, если ID получен не из этого реестра.
@@ -1250,6 +1308,15 @@ mod tests {
         let five = r#"inputs: [("iron_ore", 1), ("carbon", 1), ("steel", 1), ("iron_ingot", 1), ("iron_ore", 1)],"#;
         let err = ContentRegistry::from_ron(&BASE_CONTENT.replace(from, five)).unwrap_err();
         assert!(err.to_string().contains("at most 4"), "{err}");
+    }
+
+    #[test]
+    fn noise_only_on_working_kinds() {
+        let from = r#"name: "conveyor","#;
+        assert_eq!(BASE_CONTENT.matches(from).count(), 1);
+        let text = BASE_CONTENT.replace(from, r#"name: "conveyor", noise: 1,"#);
+        let err = ContentRegistry::from_ron(&text).unwrap_err();
+        assert!(err.to_string().contains("make noise"), "{err}");
     }
 
     #[test]

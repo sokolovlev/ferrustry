@@ -154,6 +154,8 @@ pub(crate) struct DrillRow {
     /// чтобы тик бура не обращался к постройке и реестру (P-04).
     pub(crate) threshold: u32,
     pub(crate) cap: u32,
+    /// Шум за тик добычи (копия из контента, D-02).
+    pub(crate) noise: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,6 +246,10 @@ pub struct World {
     /// «Ячейка арены → строка бура» с эпохой топологии, для которой построена (служебное).
     #[serde(skip)]
     pub(crate) drill_rows: crate::combat::Scratch<(u64, Vec<u32>)>,
+    /// Шум базы за прошлый тик (D-02): сумма шума работавших построек; ускоряет таймер волн.
+    pub(crate) noise: u32,
+    /// Шум, накопленный в текущем тике.
+    pub(crate) noise_acc: u32,
     /// Эталонный режим: поле путей всегда перестраивается целиком (бенчмарки, тесты).
     #[serde(skip)]
     pub(crate) flow_full_only: bool,
@@ -361,6 +367,8 @@ impl World {
             unit_remap: Default::default(),
             flow_scratch: Default::default(),
             flow_full_only: false,
+            noise: 0,
+            noise_acc: 0,
             drill_rows: Default::default(),
             rules: Rules::default(),
             segments: Default::default(),
@@ -389,7 +397,7 @@ impl World {
     pub fn set_rules(&mut self, rules: Rules) {
         if rules.waves && self.waves.next_number == 0 {
             self.waves.next_number = 1;
-            self.waves.next_tick = self.tick + rules.first_wave;
+            self.waves.remaining = rules.first_wave.saturating_mul(1000);
         }
         self.rules = rules;
     }
@@ -571,6 +579,7 @@ impl World {
 
     /// Выполняет один тик без команд (не выделяет память в стационарном режиме).
     pub fn step(&mut self, reg: &ContentRegistry) {
+        self.noise_acc = 0;
         if self.power.dirty {
             self.rebuild_power(reg);
         }
@@ -586,6 +595,7 @@ impl World {
         self.update_depots(reg);
         self.update_bridges(reg);
         self.update_conveyors(reg);
+        self.noise = self.noise_acc;
         self.update_combat(reg);
         self.tick += 1;
     }
@@ -745,6 +755,7 @@ impl World {
                         buffer: 0,
                         threshold: base_ticks * u32::from(def.size) * u32::from(def.size),
                         cap: buffer,
+                        noise: def.noise,
                     },
                 )
             }
@@ -1525,11 +1536,13 @@ impl World {
         };
         if row.buffer < cap {
             row.progress += row.ore_tiles;
+            let noise = row.noise;
             if row.progress >= threshold {
                 row.progress -= threshold;
                 row.buffer += 1;
                 Stats::bump(&mut self.stats.produced, item, 1);
             }
+            self.noise_acc += noise;
         }
         if self.drills.rows[r].buffer == 0 {
             return;
@@ -1597,6 +1610,7 @@ impl World {
             let owner = self.crafters.owners[r];
             let row = &self.crafters.rows[r];
             let (block, net, heat_net) = (row.block, row.power_net, row.heat_net);
+            let def = reg.block(block);
             let BlockKind::Crafter {
                 inputs,
                 outputs,
@@ -1604,7 +1618,7 @@ impl World {
                 power_use,
                 heat,
                 ..
-            } = &reg.block(block).kind
+            } = &def.kind
             else {
                 continue;
             };
@@ -1622,6 +1636,9 @@ impl World {
                 } else {
                     power_sat
                 };
+                if sat > 0 {
+                    self.noise_acc += def.noise;
+                }
                 let row = &mut self.crafters.rows[r];
                 row.heat_acc += *heat * sat;
                 let heat_units = u64::from(row.heat_acc / 1000);

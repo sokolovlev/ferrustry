@@ -5,7 +5,15 @@
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0,
 saves are incompatible between minor versions (the game reports a format version mismatch).
 
-## Unreleased
+## 0.7.0 — 2026-11-19
+
+Save format 7.0.
+
+### Added
+- **Noisy waves (D-02)**: working drills, crafters and fueled generators make noise, and the base's
+  noise speeds up the wave timer — by 2% per unit of noise, at most 2.5 times. A quiet base gets
+  waves on the previous schedule. Noise is shown in the corner of the screen and in building
+  tooltips; the values are data (`noise` on buildings and the `noise` section).
 
 ### Changed
 - **Belts are 19–20% faster** in the realistic B2-comb scenario, the B3-100k megabase by 5%: the items

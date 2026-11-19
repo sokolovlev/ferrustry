@@ -31,6 +31,8 @@
         (unit: "spitter", from_wave: 3, count: 1, grow: 1, every: 2),
         (unit: "shellback", from_wave: 6, count: 1, grow: 1, every: 2),
     ],
+    // шум базы ускоряет таймер волн: +2% за единицу шума, не больше +150% (в 2,5 раза)
+    noise: (speedup_per_unit: 20, max_speedup: 1500),
     ores: [
         (name: "iron_vein", item: "iron_ore"),
         (name: "carbon_seam", item: "carbon"),
@@ -47,6 +49,7 @@
             name: "bore",
             cost: [("iron_ingot", 10)],
             size: 2,
+            noise: 1,
             // при полном покрытии рудой (4 тайла): 1 предмет за 40 тиков
             kind: Drill(base_ticks: 40, buffer: 10),
         ),
@@ -54,6 +57,7 @@
             name: "smelter",
             cost: [("iron_ingot", 25)],
             size: 2,
+            noise: 2,
             kind: Crafter(
                 inputs: [("iron_ore", 2)],
                 outputs: [("iron_ingot", 1)],
@@ -66,6 +70,7 @@
             name: "steel_forge",
             cost: [("iron_ingot", 40)],
             size: 2,
+            noise: 4,
             kind: Crafter(
                 inputs: [("iron_ingot", 2), ("carbon", 1)],
                 outputs: [("steel", 1)],
@@ -88,6 +93,7 @@
             name: "burner",
             cost: [("iron_ingot", 25)],
             size: 2,
+            noise: 3,
             // 1 уголь = 120 тиков по 12 энергии; горит, пока есть топливо
             kind: Generator(power: 12, fuel: Some("carbon"), burn_ticks: 120, buffer: 10),
         ),

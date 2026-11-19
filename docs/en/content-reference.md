@@ -32,9 +32,9 @@ Floors: `basalt`, `ash`, `slag_pool` (not buildable).
 
 | Building | Size | Cost | Health | What it does |
 |---|---|---|---|---|
-| `bore` | 2×2 | 10 `iron_ingot` | 240 | ore under all tiles (4): 0.75 items/s; proportionally slower with less ore; buffer 10 |
-| `smelter` | 2×2 | 25 `iron_ingot` | 240 | 2 `iron_ore` → 1 `iron_ingot` in 1 s; power 4/tick; buffer 10 |
-| `steel_forge` | 2×2 | 40 `iron_ingot` | 240 | 2 `iron_ingot` + 1 `carbon` → 1 `steel` in 2 s; power 10/tick; buffer 10; heat +6/tick while working, passive cooling 1/tick |
+| `bore` | 2×2 | 10 `iron_ingot` | 240 | ore under all tiles (4): 0.75 items/s; proportionally slower with less ore; buffer 10; **noise 1** while working |
+| `smelter` | 2×2 | 25 `iron_ingot` | 240 | 2 `iron_ore` → 1 `iron_ingot` in 1 s; power 4/tick; buffer 10; **noise 2** while working |
+| `steel_forge` | 2×2 | 40 `iron_ingot` | 240 | 2 `iron_ingot` + 1 `carbon` → 1 `steel` in 2 s; power 10/tick; buffer 10; heat +6/tick while working, passive cooling 1/tick; **noise 4** while working |
 | `core` | 3×3 | 500 `iron_ingot` + 100 `steel` | 3000 | player storage: up to 4000 of each item; losing the last one loses the game |
 
 ### Power
@@ -42,7 +42,7 @@ Floors: `basalt`, `ash`, `slag_pool` (not buildable).
 | Building | Size | Cost | Health | What it does |
 |---|---|---|---|---|
 | `wind_turbine` | 1×1 | 10 `iron_ingot` | 60 | +2 power/tick, always |
-| `burner` | 2×2 | 25 `iron_ingot` | 240 | +12 power/tick while `carbon` burns (1 item = 4 s); fuel buffer 10 |
+| `burner` | 2×2 | 25 `iron_ingot` | 240 | +12 power/tick while `carbon` burns (1 item = 4 s); fuel buffer 10; **noise 3** while working |
 | `power_node` | 1×1 | 4 `iron_ingot` | 60 | links power buildings within 6 tiles |
 | `battery` | 1×1 | 15 `iron_ingot` + 2 `carbon` | 60 | stores 2000 power |
 | `heat_engine` | 2×2 | 40 `iron_ingot` + 10 `steel` | 240 | takes up to 8 heat/tick and returns 50% of it as power (from the next tick); heat capacity 200 |
@@ -85,3 +85,5 @@ Armor is subtracted from projectile damage, but damage never drops below a third
 | `spitter` | 3 | 1 | +1 every 2 waves | 0 | 2 | 4 | 9 |
 | `shellback` | 6 | 1 | +1 every 2 waves | 0 | 0 | 3 | 8 |
 | **Total** | | | | **5** | **17** | **35** | **70** |
+
+**Noise** of the base speeds up the wave timer: +2% per unit of noise of the buildings working this tick, at most +150% (reached at 75 noise). A quiet base gets waves on the schedule above.

@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "ferrustry-client"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ferrustry-content",
  "ferrustry-format",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "ferrustry-content"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ron",
  "serde",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "ferrustry-format"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "crc32fast",
  "ferrustry-content",
@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "ferrustry-headless"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ferrustry-content",
  "ferrustry-format",
@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "ferrustry-render"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bytemuck",
  "ferrustry-content",
@@ -643,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "ferrustry-sim"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "ferrustry-content",

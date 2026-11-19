@@ -120,6 +120,14 @@ Each wave brings more enemies, and later waves bring new kinds. How many enemies
 in each wave is in the "Waves" section of the [content reference](content-reference.md#waves); the
 composition is defined by the game data and may change as the balance is tuned.
 
+### Base noise
+
+Working drills, crafters and fueled generators make **noise**, and the base's noise hurries the enemy:
+the wave timer runs faster — by 2% per unit of noise, but at most 2.5 times as fast. Idle buildings make
+no noise. The noise is shown in the corner of the screen (`NOISE 12 (+24%)`; a quiet base shows
+`QUIET`), and each building's noise is in its tooltip on the panel (`NOISE 2`). The choice is yours:
+grow production fast and meet the waves sooner — or grow quietly and get time to build defences.
+
 ### Enemies
 
 - The **crawler** (`crawler`) is fast and weak, and attacks in melee.

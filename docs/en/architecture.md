@@ -330,3 +330,13 @@ editing data, with the result visible immediately.
 | Allocation | A new segment gets a range at the end of the pool; freed ranges accumulate; when holes > ¼ of the pool, it is compacted in index order (deterministic, unobservable) |
 | Saving | As before — a list of `(item, gap)` per segment; the bytes and the state hash do not depend on the layout |
 | Public API | `World::segments()` yields `SegRef` with the same methods (`tiles`, `items`, `item_positions`, `item_count`) |
+
+## 22. Base noise and waves (D-02, 2026-11-19)
+
+| What | Essence |
+|---|---|
+| Noise | `BlockDef::noise` from data; in a tick, a drill makes noise while mining, a crafter while working (power > 0), a fueled generator while burning. The per-tick total is `World::noise()` |
+| Wave timer | `Waves::remaining` in thousandths of a tick; each tick it decreases by `NoiseRule::timer_rate(noise)` = 1000 + noise × `speedup_per_unit`, at most 1000 + `max_speedup`. For a quiet base it is exactly tick for tick: the schedule is unchanged (verified by a test) |
+| Data | `noise` on buildings and the `noise` section in `base.ron`; noise on kinds that cannot make it is a validator error |
+| UI | `NOISE n (+x%)` / `QUIET` under the wave timer; a building's noise is in the panel tooltip |
+| Cost | One load and addition per working building per tick: B3-10k 330,503 → 338,748 instructions/tick (+2.5%) |

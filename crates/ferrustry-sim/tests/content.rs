@@ -418,3 +418,93 @@ fn wave_data_matches_the_former_formulas() {
         assert_eq!(World::wave_composition(&reg, n), old, "wave {n}");
     }
 }
+
+/// D-02: шумят только работающие постройки; шум — сумма их шума за тик.
+#[test]
+fn working_buildings_make_noise_idle_ones_do_not() {
+    let reg = reg();
+    let ids = BaseIds::resolve(&reg).unwrap();
+    let carbon = item(&reg, "carbon");
+    let mut w = empty(&reg, 30, 12);
+    // три топливных генератора (шум 3) с лентами угля и плавильня без руды (простаивает)
+    let mut cmds = vec![place(ids.smelter, 24, 8, Dir::Right)];
+    for k in 0..3 {
+        let y = 1 + 3 * k;
+        cmds.push(place(b(&reg, "burner"), 12, y, Dir::Right));
+        cmds.extend((2..12).map(|x| place(ids.conveyor, x, y, Dir::Right)));
+    }
+    scenario::build(&mut w, &reg, &cmds).unwrap();
+    run(&mut w, &reg, 5);
+    assert_eq!(w.noise(), 0, "nothing works yet");
+    w.debug_fill_conveyors(carbon, 64);
+    run(&mut w, &reg, 60);
+    assert_eq!(
+        w.noise(),
+        3 * 3,
+        "three burning burners, the idle smelter is silent"
+    );
+}
+
+/// D-02: шумная база получает волну раньше; тихая — ровно по расписанию.
+#[test]
+fn noisy_base_brings_waves_sooner() {
+    let reg = reg();
+    let ids = BaseIds::resolve(&reg).unwrap();
+    let carbon = item(&reg, "carbon");
+    let first = 900u64;
+    let arrival = |noisy: bool| -> (u64, u64) {
+        let mut w = empty(&reg, 40, 20);
+        let mut cmds = vec![place(ids.core, 34, 8, Dir::Right)];
+        if noisy {
+            for k in 0..5 {
+                let y = 1 + 3 * k;
+                cmds.push(place(b(&reg, "burner"), 12, y, Dir::Right));
+                cmds.extend((2..12).map(|x| place(ids.conveyor, x, y, Dir::Right)));
+            }
+        }
+        scenario::build(&mut w, &reg, &cmds).unwrap();
+        w.debug_fill_conveyors(carbon, 64);
+        w.set_spawns(vec![TilePos::new(1, 18)]);
+        w.set_rules(ferrustry_sim::Rules {
+            waves: true,
+            first_wave: first,
+            ..*w.rules()
+        });
+        // ожидание по правилу из данных, по шуму каждого тика
+        let rule = reg.noise_rule();
+        let mut rem = first * 1000;
+        let mut expected = None;
+        for t in 1..=first + 10 {
+            w.step(&reg);
+            if expected.is_none() {
+                if rem > 0 {
+                    rem = rem.saturating_sub(u64::from(rule.timer_rate(w.noise())));
+                } else {
+                    expected = Some(t);
+                }
+            }
+            if w.units().count() > 0 {
+                return (t, expected.unwrap_or(0));
+            }
+        }
+        panic!("no wave");
+    };
+    let (quiet, quiet_expected) = arrival(false);
+    assert_eq!(quiet, first + 1, "a quiet base keeps the schedule");
+    assert_eq!(quiet, quiet_expected);
+    let (noisy, noisy_expected) = arrival(true);
+    assert_eq!(
+        noisy, noisy_expected,
+        "timer follows the data rule tick by tick"
+    );
+    // 5 горящих генераторов = шум 15 → таймер +30%
+    assert!(noisy * 100 < quiet * 80, "noisy {noisy} vs quiet {quiet}");
+}
+
+#[test]
+fn noise_speedup_is_capped() {
+    let rule = reg().noise_rule();
+    assert_eq!(rule.timer_rate(0), 1000);
+    assert_eq!(rule.timer_rate(10), 1000 + 10 * rule.speedup_per_unit);
+    assert_eq!(rule.timer_rate(1_000_000), 1000 + rule.max_speedup);
+}

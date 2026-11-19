@@ -203,7 +203,7 @@ fn waves_arrive_on_schedule_and_grow() {
     assert_eq!(w.units().count(), 0, "first wave at tick 100");
     w.step(&reg);
     assert_eq!(w.units().count(), size(1));
-    assert_eq!(w.wave_info(), Some((2, 49)));
+    assert_eq!(w.wave_info(&reg), Some((2, 49)));
     run(&mut w, &reg, 50);
     assert_eq!(w.units().count(), size(1) + size(2));
     assert!(size(2) > size(1));

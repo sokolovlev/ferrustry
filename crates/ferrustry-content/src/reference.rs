@@ -429,9 +429,14 @@ impl ContentRegistry {
                 .iter()
                 .filter(|b| Self::category(&b.kind) == c)
             {
+                let noise = match (b.noise, en) {
+                    (0, _) => String::new(),
+                    (n, true) => format!("; **noise {n}** while working"),
+                    (n, false) => format!("; **шум {n}** в работе"),
+                };
                 let _ = writeln!(
                     w,
-                    "| `{}` | {s}×{s} | {} | {} | {} |",
+                    "| `{}` | {s}×{s} | {} | {} | {}{noise} |",
                     b.name,
                     self.stacks(&b.cost),
                     b.health,
@@ -529,6 +534,31 @@ impl ContentRegistry {
             let _ = write!(total, " **{sum}** |");
         }
         let _ = writeln!(w, "{total}");
+        let rule = self.noise_rule();
+        if rule.speedup_per_unit > 0 {
+            let (per, max) = (
+                num(lang, f64::from(rule.speedup_per_unit) / 10.0),
+                num(lang, f64::from(rule.max_speedup) / 10.0),
+            );
+            let full = rule.max_speedup.div_ceil(rule.speedup_per_unit);
+            let _ = writeln!(
+                w,
+                "\n{}",
+                if en {
+                    format!(
+                        "**Noise** of the base speeds up the wave timer: +{per}% per unit of noise of the \
+                         buildings working this tick, at most +{max}% (reached at {full} noise). A quiet base \
+                         gets waves on the schedule above."
+                    )
+                } else {
+                    format!(
+                        "**Шум** базы ускоряет таймер волн: +{per}% за единицу шума построек, работавших в \
+                         этом тике, не больше +{max}% (достигается при шуме {full}). Тихая база получает \
+                         волны по расписанию выше."
+                    )
+                }
+            );
+        }
         s
     }
 }

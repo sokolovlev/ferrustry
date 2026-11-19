@@ -138,8 +138,9 @@ pub(crate) struct FlowScratch {
 pub struct Waves {
     /// Номер следующей волны (с 1).
     pub next_number: u32,
-    /// Тик следующей волны.
-    pub next_tick: u64,
+    /// Сколько осталось до следующей волны, тысячные тика. Каждый тик убывает на скорость
+    /// таймера: 1000 у тихой базы, больше — у шумной (D-02).
+    pub remaining: u64,
 }
 
 /// Исход партии.
@@ -283,14 +284,22 @@ impl World {
         self.outcome
     }
 
-    /// Номер следующей волны и тиков до неё (`None`, если волны выключены).
-    pub fn wave_info(&self) -> Option<(u32, u64)> {
-        self.rules().waves.then(|| {
-            (
-                self.waves.next_number,
-                self.waves.next_tick.saturating_sub(self.tick_count()),
-            )
-        })
+    /// Номер следующей волны и тиков до неё при нынешнем шуме (`None`, если волны выключены).
+    pub fn wave_info(&self, reg: &ContentRegistry) -> Option<(u32, u64)> {
+        let rate = u64::from(self.wave_timer_rate(reg));
+        self.rules()
+            .waves
+            .then(|| (self.waves.next_number, self.waves.remaining.div_ceil(rate)))
+    }
+
+    /// Шум базы за прошлый тик (D-02).
+    pub fn noise(&self) -> u32 {
+        self.noise
+    }
+
+    /// Скорость таймера волн при нынешнем шуме, тысячные (1000 — обычная).
+    pub fn wave_timer_rate(&self, reg: &ContentRegistry) -> u32 {
+        reg.noise_rule().timer_rate(self.noise)
     }
 
     /// Убито врагов.
@@ -337,8 +346,13 @@ impl World {
     }
 
     fn update_waves(&mut self, reg: &ContentRegistry) {
-        if !self.rules().waves || self.spawns.is_empty() || self.tick_count() < self.waves.next_tick
-        {
+        if !self.rules().waves || self.spawns.is_empty() {
+            return;
+        }
+        // таймер идёт быстрее у шумной базы (D-02); у тихой — ровно тик за тик, как раньше
+        if self.waves.remaining > 0 {
+            let rate = u64::from(self.wave_timer_rate(reg));
+            self.waves.remaining = self.waves.remaining.saturating_sub(rate);
             return;
         }
         let n = self.waves.next_number.max(1);
@@ -358,7 +372,8 @@ impl World {
             }
         }
         self.waves.next_number = n + 1;
-        self.waves.next_tick = self.tick_count() + self.rules().wave_spacing.max(1);
+        // волна пришла в этом тике; следующая — через `wave_spacing` тиков тихой базы
+        self.waves.remaining = (self.rules().wave_spacing.max(1) - 1).saturating_mul(1000);
     }
 
     /// Отметить изменение построек для поля путей: тайлы постройки (или полная перестройка,

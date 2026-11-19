@@ -44,7 +44,7 @@ scripts/check.sh                                                # all checks
 | `fluids` | `name` |
 | `ores` | `name`; `item` — what a drill mines from it |
 | `units` | see [Enemies](#enemies) |
-| `blocks` | `name`; `size` 1..=8 (side in tiles); `cost` — a list of `("item", amount > 0)`, free by default; `health` — 0 or omitted = 60 × size²; `kind` — the behaviour |
+| `blocks` | `name`; `size` 1..=8 (side in tiles); `cost` — a list of `("item", amount > 0)`, free by default; `health` — 0 or omitted = 60 × size²; `noise` — noise per working tick, default 0 (drills, crafters, fueled generators only); `kind` — the behaviour |
 
 ## Building kinds (`kind`)
 
@@ -123,6 +123,19 @@ for waves 1, 5, 10 and 20 are shown in the content reference.
 | `every` | Growth every how many waves, default 1 | > 0 |
 
 A new enemy joins the waves as soon as it has a rule — no code changes needed.
+
+## Noise
+
+```ron
+noise: (speedup_per_unit: 20, max_speedup: 1500),
+```
+
+The base's noise is the sum of `noise` of the buildings that worked this tick: a drill mining, a
+crafter making its recipe, a fueled generator burning. Idle and sleeping buildings make no noise. The
+wave timer runs faster by `speedup_per_unit` thousandths per unit of noise, but at most `max_speedup`
+thousandths (1500 — 2.5 times). Without the section (or with zeros) noise does not affect waves.
+`noise` on any other building kind is a load error: that way a typo does not turn into a silently
+ignored parameter.
 
 ## What needs code
 

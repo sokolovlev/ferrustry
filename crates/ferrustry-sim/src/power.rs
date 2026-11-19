@@ -170,6 +170,7 @@ impl World {
         }
         // топливные генераторы горят, пока есть топливо (горение не зависит от спроса — v0)
         let (nets, stats) = (&mut self.power.nets, &mut self.stats);
+        let mut noise = 0u32;
         for (g, owner) in self.generators.rows.iter_mut().zip(&self.generators.owners) {
             if !g.fueled {
                 continue; // учтён в `steady`
@@ -177,12 +178,13 @@ impl World {
             let Some(b) = self.buildings.get(*owner) else {
                 continue;
             };
+            let def = reg.block(b.block);
             let BlockKind::Generator {
                 power,
                 fuel,
                 burn_ticks,
                 ..
-            } = reg.block(b.block).kind
+            } = def.kind
             else {
                 continue;
             };
@@ -196,10 +198,12 @@ impl World {
                 continue;
             }
             g.burn -= 1;
+            noise += def.noise;
             if let Some(net) = b.power_net.and_then(|n| nets.get_mut(n as usize)) {
                 net.production += u64::from(power);
             }
         }
+        self.noise_acc += noise;
         // дуговые турели: спрос, пока идёт перезарядка
         for (row, owner) in self.turrets.rows.iter().zip(&self.turrets.owners) {
             if row.cooldown == 0 {

@@ -351,6 +351,6 @@ mod tests {
         let mut s = settings(MapSize::Small, 1);
         s.difficulty = Difficulty::Hard;
         let w = generate(&reg, &s).unwrap();
-        assert_eq!(w.wave_info(), Some((1, 180 * 30)));
+        assert_eq!(w.wave_info(&reg), Some((1, 180 * 30)));
     }
 }

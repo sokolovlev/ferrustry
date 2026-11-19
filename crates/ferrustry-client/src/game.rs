@@ -344,7 +344,7 @@ impl Game {
                 self.pending.clear();
                 self.last_wave = self
                     .world
-                    .wave_info()
+                    .wave_info(&self.reg)
                     .map_or(0, |(n, _)| n.saturating_sub(1));
                 self.screen = Screen::Playing;
                 self.notify("GAME LOADED");
@@ -757,7 +757,7 @@ impl Game {
         }
         self.tps.tick(dt, ticks);
         if self.screen == Screen::Playing
-            && let Some((next, _)) = self.world.wave_info()
+            && let Some((next, _)) = self.world.wave_info(&self.reg)
         {
             let arrived = next.saturating_sub(1);
             if arrived > self.last_wave {
@@ -982,7 +982,7 @@ impl Game {
         );
         let waves = self
             .world
-            .wave_info()
+            .wave_info(&self.reg)
             .map_or(0, |(n, _)| n.saturating_sub(2));
         let sub = format!(
             "SURVIVED {waves} WAVES  -  {} ENEMIES DESTROYED",
@@ -1191,22 +1191,32 @@ impl Game {
         let titanium = rgba(palette::TITANIUM);
 
         // заголовок, статус и волны
-        ui.panel(hud, atlas, white, [0.0, 0.0, 380.0 * u, 84.0 * u], panel);
-        if let Some((n, left)) = self.world.wave_info() {
+        let waves_on = self.world.rules().waves;
+        let panel_h = if waves_on { 104.0 } else { 84.0 };
+        ui.panel(hud, atlas, white, [0.0, 0.0, 380.0 * u, panel_h * u], panel);
+        if let Some((n, left)) = self.world.wave_info(&self.reg) {
             let secs = left / u64::from(TICKS_PER_SECOND);
             let enemies = self.world.units().count();
-            let wave = format!(
-                "WAVE {n} IN {}:{:02}  ENEMIES {enemies}  KILLS {}",
-                secs / 60,
-                secs % 60,
-                self.world.kills()
-            );
+            let wave = format!("WAVE {n} IN {}:{:02}", secs / 60, secs % 60);
             let col = if left < 30 * u64::from(TICKS_PER_SECOND) {
                 orange
             } else {
                 steel
             };
             hud.text(atlas, 12.0 * u, 60.0 * u, 2.0 * u, &wave, col);
+            // шум базы ускоряет таймер волн (D-02)
+            let speedup = (self.world.wave_timer_rate(&self.reg) - 1000) / 10;
+            let noise = if speedup > 0 {
+                format!(
+                    "ENEMIES {enemies}  KILLS {}  NOISE {} (+{speedup}%)",
+                    self.world.kills(),
+                    self.world.noise()
+                )
+            } else {
+                format!("ENEMIES {enemies}  KILLS {}  QUIET", self.world.kills())
+            };
+            let col = if speedup > 0 { orange } else { steel };
+            hud.text(atlas, 12.0 * u, 80.0 * u, 2.0 * u, &noise, col);
         }
         hud.text(atlas, 12.0 * u, 10.0 * u, 3.0 * u, "FERRUSTRY", orange);
         let status = format!(
@@ -1765,6 +1775,11 @@ impl Game {
                 max_heat * power_per_heat_permille / 1000
             ),
         };
+        let what = if d.noise > 0 {
+            format!("{what}  NOISE {}", d.noise)
+        } else {
+            what
+        };
         if d.cost.is_empty() || self.world.rules().infinite_resources {
             what
         } else {
@@ -1778,7 +1793,13 @@ impl Game {
             let vw = self.camera.viewport[0];
             let s = 2.0 * u;
             let w = text_width(m, s);
-            let r = [(vw - w) / 2.0 - 14.0 * u, 76.0 * u, w + 28.0 * u, 34.0 * u];
+            // под панелью статуса (она выше на строку, когда включены волны)
+            let top = if self.world.rules().waves {
+                112.0
+            } else {
+                92.0
+            } * u;
+            let r = [(vw - w) / 2.0 - 14.0 * u, top, w + 28.0 * u, 34.0 * u];
             hud.rect(atlas, table.white, r, [0.02, 0.025, 0.04, 0.9]);
             hud.rect(
                 atlas,
@@ -1789,7 +1810,7 @@ impl Game {
             hud.text(
                 atlas,
                 (vw - w) / 2.0,
-                86.0 * u,
+                top + 10.0 * u,
                 s,
                 m,
                 rgba(palette::STEEL_WHITE),
