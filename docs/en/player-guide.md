@@ -141,12 +141,15 @@ grow production fast and meet the waves sooner — or grow quietly and get time 
 
 | Building | Strengths | Needs |
 |---|---|---|
-| **Gun turret** 2×2 | Range 9, 24 damage/s, leads its targets | Iron ingots by belt: 1 ingot = 4 shots |
-| **Arc tower** 2×2 | Instant discharge, **ignores armor**, 36 damage/s | Power: 8/tick while recharging; at 50% power it fires half as often. Costs steel |
+| **Gun turret** 2×2 | Range 9, 24 damage/s, leads its targets | Iron ingots by belt: 1 ingot = 2 shots |
+| **Arc tower** 2×2 | Range 7, instant discharge, **ignores armor**, 48 damage/s | Power: 8/tick while recharging; at 50% power it fires half as often. Costs steel |
 | **Iron wall** 1×1 | 400 health, cheap | — |
 
 Turrets spread their fire: they don't shoot an enemy that shells already in flight will kill, and
 pick the next target instead — several turrets don't waste ammo on a single crawler.
+
+How difficulty grows is in the [balance report](balance/2026-11-19-normal-tuned.md): how many turrets
+hold each wave and how much production it takes to pay for them.
 
 Tip: run an ingot belt to your gun turrets in advance — without ammo a turret stays silent. Against later
 waves, put arc towers behind the line of guns and don't forget the power.

@@ -7,6 +7,13 @@ saves are incompatible between minor versions (the game reports a format version
 
 ## Unreleased
 
+### Changed
+- **Balance by the report** (`docs/en/balance/2026-11-19-normal-tuned.md`): the base has to grow — by
+  wave 5 it takes ~2 production cells, by wave 10 ~6, by 15 ~10, by 20 ~16 (was 1 / 2 / 3 / 5). Waves:
+  crawlers +3 per wave (was +2), brutes +1 every wave (was every other). The gun turret costs 45 ingots
+  (was 30), 1 ingot = 2 shots (was 4). Arc tower: range 7 (was 5), discharge 40 (was 30) — in later
+  waves it is more efficient than guns.
+
 ### Added
 - **Balance tool** `ferrustry-headless balance`: the difficulty curve from real runs — how many guns
   and arc towers hold each wave, ammo use, arrival time at different noise levels and how many

@@ -221,25 +221,40 @@ fn unit_health(w: &World) -> Option<u32> {
 #[test]
 fn arc_tower_needs_power_and_ignores_armor() {
     let reg = reg();
-    // 4 ветряка = 8 энергии/тик = полное питание: 320 / 30 → 11 разрядов × 25 тиков
+    // числа — из данных: тест проверяет механику, а не конкретный баланс
+    let ferrustry_content::BlockKind::ArcTurret {
+        damage,
+        reload,
+        power_use,
+        ..
+    } = reg.block(b(&reg, "arc_tower")).kind
+    else {
+        panic!("arc_tower must be an arc turret");
+    };
+    let hp = reg.unit(reg.unit_by_name("shellback").unwrap()).health;
+    assert_eq!(power_use, 8, "4 wind turbines (2 each) give full power");
+    // полное питание: hp / damage разрядов (вверх), по одному за перезарядку
+    let shots = hp.div_ceil(damage);
     let mut w = arc_range(&reg, 4, "shellback");
-    run(&mut w, &reg, 11 * 25 + 10);
+    run(&mut w, &reg, (shots - 1) * reload + 10);
     assert_eq!(w.kills(), 1, "armor does not help against the arc");
     w.validate(&reg).unwrap();
 
     // без питания: первый разряд (турель построена заряженной), дальше — тишина
     let mut w = arc_range(&reg, 0, "shellback");
     run(&mut w, &reg, 400);
-    assert_eq!(unit_health(&w), Some(320 - 30));
+    assert_eq!(unit_health(&w), Some(hp - damage));
 
-    // половина питания — перезарядка вдвое дольше
+    // половина питания — перезарядка вдвое дольше; окно короче, чем нужно на убийство
+    let window = 6 * reload;
+    assert!(hp > damage * window.div_ceil(reload));
     let mut full = arc_range(&reg, 4, "shellback");
     let mut half = arc_range(&reg, 2, "shellback");
-    run(&mut full, &reg, 150);
-    run(&mut half, &reg, 150);
+    run(&mut full, &reg, window);
+    run(&mut half, &reg, window);
     let (f, h) = (unit_health(&full).unwrap(), unit_health(&half).unwrap());
-    assert_eq!(320 - f, 30 * 6, "full power: shots at 0, 25, ..., 125");
-    assert_eq!(320 - h, 30 * 3, "half power: shots at 0, 50, 100");
+    assert_eq!(hp - f, damage * window.div_ceil(reload), "full power");
+    assert_eq!(hp - h, damage * window.div_ceil(2 * reload), "half power");
 }
 
 #[test]
@@ -398,24 +413,30 @@ fn incoming_damage_bookkeeping_holds_in_battle() {
     assert!(w.kills() > 100, "kills {}", w.kills());
 }
 
-/// S5-02: состав волн перенесён из кода в данные без изменения игры — до 60-й волны совпадает
-/// с прежними формулами из кода.
+/// Состав волн из данных: каждая следующая волна не меньше предыдущей ни по одному виду врагов,
+/// и состав совпадает с правилами `waves` (count + grow × ⌊(N − from) / every⌋).
 #[test]
-fn wave_data_matches_the_former_formulas() {
+fn waves_grow_by_the_data_rules() {
     let reg = reg();
-    let id = |n: &str| reg.unit_by_name(n).unwrap();
+    let mut prev: Vec<u32> = vec![0; reg.units().len()];
     for n in 1..=60u32 {
-        let mut old = vec![(id("crawler"), 3 + 2 * n)];
-        if n / 2 > 0 {
-            old.push((id("brute"), n / 2));
+        let mut cur = vec![0u32; reg.units().len()];
+        for (kind, count) in World::wave_composition(&reg, n) {
+            cur[usize::from(kind.0)] += count;
         }
-        if n >= 3 {
-            old.push((id("spitter"), (n - 1) / 2));
+        for r in reg.waves() {
+            let want = if n < r.from_wave {
+                0
+            } else {
+                r.count + r.grow * ((n - r.from_wave) / r.every)
+            };
+            assert_eq!(cur[usize::from(r.unit.0)], want, "wave {n}");
         }
-        if n >= 6 {
-            old.push((id("shellback"), (n - 4) / 2));
-        }
-        assert_eq!(World::wave_composition(&reg, n), old, "wave {n}");
+        assert!(
+            cur.iter().zip(&prev).all(|(c, p)| c >= p),
+            "wave {n} shrank"
+        );
+        prev = cur;
     }
 }
 

@@ -26,8 +26,8 @@
     ],
     // состав волн: с волны from_wave приходит count врагов, каждые every волн — ещё grow
     waves: [
-        (unit: "crawler", from_wave: 1, count: 5, grow: 2, every: 1),
-        (unit: "brute", from_wave: 2, count: 1, grow: 1, every: 2),
+        (unit: "crawler", from_wave: 1, count: 5, grow: 3, every: 1),
+        (unit: "brute", from_wave: 2, count: 1, grow: 1, every: 1),
         (unit: "spitter", from_wave: 3, count: 1, grow: 1, every: 2),
         (unit: "shellback", from_wave: 6, count: 1, grow: 1, every: 2),
     ],
@@ -177,11 +177,11 @@
         ),
         (
             name: "gun_turret",
-            cost: [("iron_ingot", 30)],
+            cost: [("iron_ingot", 45)],
             size: 2,
             health: 400,
             // 1 слиток = 4 выстрела по 12 урона; радиус 9 тайлов
-            kind: Turret(range: 9, damage: 12, reload: 15, ammo: "iron_ingot", shots_per_item: 4, projectile_speed: 96, buffer: 10),
+            kind: Turret(range: 9, damage: 12, reload: 15, ammo: "iron_ingot", shots_per_item: 2, projectile_speed: 96, buffer: 10),
         ),
         (
             name: "arc_tower",
@@ -189,7 +189,7 @@
             size: 2,
             health: 350,
             // разряд 30 урона каждые 25 тиков, 8 энергии за тик перезарядки; броня не помогает
-            kind: ArcTurret(range: 5, damage: 30, reload: 25, power_use: 8),
+            kind: ArcTurret(range: 7, damage: 40, reload: 25, power_use: 8),
         ),
         (
             name: "iron_wall",

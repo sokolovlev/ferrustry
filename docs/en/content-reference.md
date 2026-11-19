@@ -61,8 +61,8 @@ Floors: `basalt`, `ash`, `slag_pool` (not buildable).
 
 | Building | Size | Cost | Health | What it does |
 |---|---|---|---|---|
-| `gun_turret` | 2×2 | 30 `iron_ingot` | 400 | range 9, 12 damage per shot, 2 shots/s (24 damage/s); ammo `iron_ingot` — 4 shots per item, buffer 10 items; projectile 11.25 tiles/s |
-| `arc_tower` | 2×2 | 40 `iron_ingot` + 15 `steel` | 350 | range 5, instant 30 damage discharge, **ignores armor**; at full power 1.2 discharges/s (36 damage/s); power 8/tick while recharging |
+| `gun_turret` | 2×2 | 45 `iron_ingot` | 400 | range 9, 12 damage per shot, 2 shots/s (24 damage/s); ammo `iron_ingot` — 2 shots per item, buffer 10 items; projectile 11.25 tiles/s |
+| `arc_tower` | 2×2 | 40 `iron_ingot` + 15 `steel` | 350 | range 7, instant 40 damage discharge, **ignores armor**; at full power 1.2 discharges/s (48 damage/s); power 8/tick while recharging |
 | `iron_wall` | 1×1 | 4 `iron_ingot` | 400 | health only; enemies prefer to go around high-health buildings |
 
 ## Enemies
@@ -80,10 +80,10 @@ Armor is subtracted from projectile damage, but damage never drops below a third
 
 | Enemy | From wave | At first | Growth | Wave 1 | Wave 5 | Wave 10 | Wave 20 |
 |---|---|---|---|---|---|---|---|
-| `crawler` | 1 | 5 | +2 each wave | 5 | 13 | 23 | 43 |
-| `brute` | 2 | 1 | +1 every 2 waves | 0 | 2 | 5 | 10 |
+| `crawler` | 1 | 5 | +3 each wave | 5 | 17 | 32 | 62 |
+| `brute` | 2 | 1 | +1 each wave | 0 | 4 | 9 | 19 |
 | `spitter` | 3 | 1 | +1 every 2 waves | 0 | 2 | 4 | 9 |
 | `shellback` | 6 | 1 | +1 every 2 waves | 0 | 0 | 3 | 8 |
-| **Total** | | | | **5** | **17** | **35** | **70** |
+| **Total** | | | | **5** | **23** | **48** | **98** |
 
 **Noise** of the base speeds up the wave timer: +2% per unit of noise of the buildings working this tick, at most +150% (reached at 75 noise). A quiet base gets waves on the schedule above.
