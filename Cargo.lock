@@ -623,9 +623,11 @@ dependencies = [
  "ferrustry-format",
  "ferrustry-sim",
  "memory-stats",
+ "postcard",
  "rayon",
  "serde",
  "serde_json",
+ "zstd",
 ]
 
 [[package]]

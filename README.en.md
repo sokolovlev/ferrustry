@@ -69,6 +69,7 @@ For developers and content authors:
 - [Content format](docs/en/content-format.md) — how to add a building or an enemy
 - [Balance report](docs/en/balance/2026-11-19-normal-tuned.md) — the difficulty curve from real runs ([before tuning](docs/en/balance/2026-11-19-normal.md))
 - [Architecture](docs/en/architecture.md)
+- [Multiplayer: design](docs/en/network-design.md) — stage 6, awaiting approval
 - [Genre analysis](docs/en/genre-analysis.md)
 - [Compatibility](docs/en/compatibility.md)
 - [Roadmap and backlog](docs/en/roadmap.md)

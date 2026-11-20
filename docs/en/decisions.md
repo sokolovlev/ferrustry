@@ -44,3 +44,14 @@ owner's answer.
 | **C. Rendering on a separate thread** (client) | Simulation and drawing on different threads | FPS does not drop because of a heavy tick and vice versa; determinism is not affected | Needs a state snapshot for rendering; the benefit shows on large bases together with the layer cache (R-01) |
 | **D. Matches per core** (server) | The dedicated server runs one match per core | Server scaling without changes to the simulation | Does not speed up a single match; part of stage 6 |
 
+## Multiplayer (stage 6, added 2026-11-20)
+
+Reasoning and measurements — [network-design.md](network-design.md).
+
+| ID | Question | Proposal | Alternatives | Status |
+|---|---|---|---|---|
+| D-18 | Synchronization model | **Authoritative server + command relay**: the server orders commands and sends per-tick frames, the server and every client simulate the world | State replication (snapshot + changes): ≥ 3.6 Mbit/s per client and 17 ms to find changes on a megabase; a hybrid (commands + unit state) — more complex with no gain given our measurements | Awaiting approval |
+| D-19 | Command delay | A command runs in the nearest tick the server hasn't simulated yet; the client keeps a 2–4 tick frame buffer (66–133 ms), the building ghost shows immediately | A fixed input delay for everyone (simpler, but slower for players close to the server); client-side execution prediction with rollback (complex and expensive for megabases) | Awaiting approval |
+| D-20 | Desync | A checksum every 5 s (a fast one, task S6-04); on a mismatch — a new snapshot and a report with the tick number | Checking every tick (expensive: a megabase `state_hash` is 28 ms); no checking (bugs go unnoticed) | Awaiting approval |
+| D-21 | Joining a running game | A snapshot (copy the world at a tick, serialize in the background) + catching up through frames faster than real time | Pausing the game while someone joins (simpler, but disturbs the others) | Awaiting approval |
+| D-22 | First version mode | **Co-op**: a shared base and shared resources, up to 8 players; PvP with fog of war later, probably only with a different visibility model | PvP right away (with command relay a client sees the whole world — fog of war isn't protected) | Awaiting approval |

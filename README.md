@@ -69,6 +69,7 @@ cargo run --release -p ferrustry-headless -- run
 - [Формат контента](docs/content-format.md) — как добавить постройку или врага
 - [Отчёт о балансе](docs/balance/2026-11-19-normal-tuned.md) — кривая сложности из прогонов ([до настройки](docs/balance/2026-11-19-normal.md))
 - [Архитектура](docs/architecture.md)
+- [Сетевая игра: проект](docs/network-design.md) — этап 6, на согласовании
 - [Анализ жанра](docs/genre-analysis.md)
 - [Совместимость](docs/compatibility.md)
 - [Roadmap и backlog](docs/roadmap.md)

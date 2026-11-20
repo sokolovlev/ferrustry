@@ -167,6 +167,8 @@ The hottest spot of the genre. Model:
 - Transport: UDP with custom reliable/unreliable channels or an existing solution (renet / QUIC via quinn).
   Decided after a prototype (D-08). `tokio` is used only in net/server, sim stays synchronous.
 - The protocol is versioned; a version mismatch is a clear error on connect.
+- **Stage 6 design (2026-11-20)**: [network-design.md](network-design.md) — measurements showed that replicating
+  a megabase's state costs ≥ 3.6 Mbit/s per client; command relay with an authoritative server is proposed (D-18).
 
 ## 10. Formats
 
