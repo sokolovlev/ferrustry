@@ -26,7 +26,10 @@ fn main() {
         "B3 {total} conveyors, {cpus} logical CPUs, {warmup} warm-up + {ticks} measured ticks"
     );
     let mut single = None;
-    for threads in [1usize, 2, 4, 8].into_iter().filter(|&t| t <= cpus.max(1)) {
+    for threads in [1usize, 2, 4, 6, 8, 12]
+        .into_iter()
+        .filter(|&t| t <= cpus.max(1))
+    {
         let per = total / threads as u32;
         let tick = Arc::new(Barrier::new(threads));
         let phase = Arc::new(Barrier::new(threads + 1));
