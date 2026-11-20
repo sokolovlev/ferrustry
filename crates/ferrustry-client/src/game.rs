@@ -14,7 +14,9 @@ use ferrustry_sim::{Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePo
 use crate::ui::{Rect, Ui, text_width};
 
 mod editor;
-use editor::Editor;
+mod maps;
+use editor::{Editor, Leave};
+pub use maps::{LEGACY_MAP_FILE, MAPS_DIR, MapEntry, MapPurpose, next_map_path};
 
 /// Кнопка мыши.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +66,10 @@ pub enum Key {
     PanLeft,
     /// Панорама вправо.
     PanRight,
+    /// Отменить (редактор).
+    Undo,
+    /// Повторить (редактор).
+    Redo,
 }
 
 /// Событие ввода.
@@ -108,6 +114,8 @@ pub enum Screen {
     NewGame,
     /// Редактор карт.
     Editor,
+    /// Список карт.
+    Maps,
 }
 
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
@@ -123,10 +131,22 @@ pub enum Request {
     SaveSchematic(Schematic),
     /// Загрузить схему из файла.
     LoadSchematic,
-    /// Сохранить карту в файл.
-    SaveMap(Box<ferrustry_sim::map::MapDef>),
-    /// Загрузить карту из файла.
-    LoadMap,
+    /// Сохранить карту: в `path` или, если его нет, в новый файл папки карт.
+    SaveMap {
+        /// Карта.
+        def: Box<ferrustry_sim::map::MapDef>,
+        /// Файл (`None` — новый).
+        path: Option<String>,
+    },
+    /// Прочитать список карт.
+    ListMaps,
+    /// Прочитать карту.
+    LoadMap {
+        /// Файл.
+        path: String,
+        /// Зачем.
+        purpose: MapPurpose,
+    },
 }
 
 const QUICKSAVE: &str = "ferrustry-quicksave.fsave";
@@ -209,6 +229,8 @@ pub struct Game {
     map_size: MapSize,
     difficulty: Difficulty,
     editor: Editor,
+    maps: Vec<MapEntry>,
+    maps_page: usize,
 }
 
 /// Скользящий счётчик частоты.
@@ -286,6 +308,8 @@ impl Game {
             map_size: MapSize::Medium,
             difficulty: Difficulty::Normal,
             editor: Editor::default(),
+            maps: Vec::new(),
+            maps_page: 0,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -581,10 +605,10 @@ impl Game {
                 None => self.notify("COPY SOMETHING FIRST (C)"),
             },
             (Screen::Playing, Key::LoadSchematic) => self.requests.push(Request::LoadSchematic),
-            (Screen::NewGame | Screen::Editor, Key::Cancel) => {
-                self.drag = None;
-                self.screen = Screen::MainMenu;
-            }
+            (Screen::NewGame | Screen::Maps, Key::Cancel) => self.screen = Screen::MainMenu,
+            (Screen::Editor, Key::Cancel) => self.editor_leave(Leave::Back),
+            (Screen::Editor, Key::Undo) => self.editor_undo(),
+            (Screen::Editor, Key::Redo) => self.editor_redo(),
             (Screen::Playing, Key::Rotate) => {
                 self.rot = match self.rot {
                     Dir::Right => Dir::Down,
@@ -600,7 +624,7 @@ impl Game {
             }
             (Screen::Playing, Key::Help) => self.show_help = !self.show_help,
             (Screen::Playing | Screen::PauseMenu, Key::Save) => self.requests.push(Request::Save),
-            (Screen::Editor, _) => {}
+            (Screen::Editor | Screen::Maps, _) => {}
             (_, Key::Load) => self.requests.push(Request::Load),
             (Screen::Playing, Key::Faster) => self.speed = (self.speed * 2).min(8),
             (Screen::Playing, Key::Slower) => self.speed = (self.speed / 2).max(1),
@@ -769,7 +793,7 @@ impl Game {
         let running = match self.screen {
             Screen::MainMenu | Screen::NewGame => true,
             Screen::Playing => !self.paused && self.world.outcome() == Outcome::Running,
-            Screen::PauseMenu | Screen::Editor => false,
+            Screen::PauseMenu | Screen::Editor | Screen::Maps => false,
         };
         if running {
             let step = 1.0 / f64::from(TICKS_PER_SECOND);
@@ -894,6 +918,7 @@ impl Game {
             Screen::MainMenu => self.main_menu(&mut ui, atlas, table, hud),
             Screen::NewGame => self.new_game_screen(&mut ui, atlas, table, hud),
             Screen::Editor => self.editor_hud(&mut ui, atlas, table, hud),
+            Screen::Maps => self.maps_screen(&mut ui, atlas, table, hud),
             Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
             Screen::PauseMenu => {
                 self.play_hud(&mut ui, atlas, table, hud);
@@ -975,8 +1000,8 @@ impl Game {
         if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
             self.screen = Screen::NewGame;
         }
-        if ui.button(hud, atlas, white, r[1], "MAP EDITOR", 3.0 * u, true) {
-            self.open_editor();
+        if ui.button(hud, atlas, white, r[1], "MAPS", 3.0 * u, true) {
+            self.open_maps();
         }
         if ui.button(
             hud,
@@ -1922,21 +1947,33 @@ mod tests {
     fn map_editor_from_the_main_menu_to_play() {
         let (mut g, mut e) = (game(), env());
         frame(&mut g, &mut e);
-        let editor = g.menu_rects(4, 720.0 * 0.16 + 170.0)[1];
-        click(&mut g, &mut e, center(editor));
+        let maps = g.menu_rects(4, 720.0 * 0.16 + 170.0)[1];
+        click(&mut g, &mut e, center(maps));
+        assert_eq!(g.screen(), Screen::Maps);
+        assert_eq!(g.take_requests(), vec![Request::ListMaps]);
+        // NEW MAP — первая кнопка внизу экрана карт
+        let new_map = g.maps_layout().actions[0];
+        click(&mut g, &mut e, center(new_map));
         assert_eq!(g.screen(), Screen::Editor);
         // клик по инструменту выбирает его, а не рисует под панелью
         let l = g.editor_layout();
         let floor_before = g.world.grid().floor(TilePos::new(0, 0));
         click(&mut g, &mut e, center(l.tools[0]));
         assert_eq!(g.world.grid().floor(TilePos::new(0, 0)), floor_before);
-        // SAVE отдаёт карту наружу
+        // SAVE новой карты — в новый файл (путь выбирает окружение)
         click(&mut g, &mut e, center(l.actions[2]));
         assert!(
             g.take_requests()
                 .iter()
-                .any(|r| matches!(r, Request::SaveMap(_)))
+                .any(|r| matches!(r, Request::SaveMap { path: None, .. }))
         );
+        g.map_saved(Ok("maps/map-001.fmap".into()));
+        // повторный SAVE — в тот же файл
+        click(&mut g, &mut e, center(l.actions[2]));
+        assert!(g.take_requests().iter().any(|r| matches!(
+            r,
+            Request::SaveMap { path: Some(p), .. } if p == "maps/map-001.fmap"
+        )));
         // PLAY — партия по карте
         click(&mut g, &mut e, center(l.actions[4]));
         assert_eq!(g.screen(), Screen::Playing);

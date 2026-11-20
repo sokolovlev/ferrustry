@@ -31,8 +31,10 @@ You start with only the core and **300 iron ingots**.
 
 ## Map editor
 
-**MAP EDITOR** in the main menu opens the editor on a map made by the generator with the new game
-settings (size, difficulty, seed). The tools are on the left, the actions at the bottom.
+**MAPS** in the main menu opens the list of maps from the `maps/` folder next to the game: each map shows
+its size, the number of enemy spawn points and the buttons **PLAY** (start a game) and **EDIT** (open it in
+the editor). **NEW MAP** opens the editor on a map made by the generator with the new game settings (size,
+difficulty, seed). The tools are on the left, the actions at the bottom.
 
 | Tool | What it does |
 |---|---|
@@ -47,11 +49,15 @@ settings (size, difficulty, seed). The tools are on the left, the actions at the
 | START | Starting stock of iron ingots |
 
 LMB paints (you can drag), RMB erases ore and buildings. Floor and ore under buildings are not
-changed. The camera works as in the game (MMB, WASD, wheel).
+changed. The camera works as in the game (MMB, WASD, wheel). **Z** / **UNDO** undoes the last stroke or
+click, **Y** / **REDO** redoes it (up to 64 steps; the wave pace and starting stock are not part of the history).
 
-**GENERATE** makes a new random map, **BLANK** an empty map of the same size, **SAVE** / **LOAD**
-save to / load from `ferrustry-map.fmap`, **PLAY** starts a game on this map, **BACK** or **Esc**
-returns to the main menu. Before starting, the editor checks that there is a core and, with waves on,
+**GENERATE** makes a new random map, **BLANK** an empty map of the same size, **SAVE** saves it (a new
+map to the next free file `maps/map-001.fmap`, `map-002.fmap`…, an opened one to its own file), **MAPS**
+returns to the map list, **PLAY** starts a game on this map, **BACK** or **Esc** returns to the main menu.
+An asterisk next to the map name means there are unsaved changes: then GENERATE, BLANK, MAPS and BACK work
+on the second press. Map files can be renamed and copied — the list shows them under their new names.
+Before starting, the editor checks that there is a core and, with waves on,
 that there are spawn points and each of them has a path to a core.
 
 The map file stores floor, ore and buildings by name, so it survives game updates; if something on

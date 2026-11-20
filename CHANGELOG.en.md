@@ -10,11 +10,14 @@ saves are incompatible between minor versions (the game reports a format version
 ### Added
 - **Overflow gate** `overflow_gate`: items go straight while there is room ahead, the surplus
   alternates sideways. The LOGISTICS tab has 6 buildings (keys 1–6).
-- **Map editor** (MAP EDITOR in the main menu): floor, ore, cores, enemy spawn points, wave pace and
+- **Map editor** (MAPS → NEW MAP in the main menu): floor, ore, cores, enemy spawn points, wave pace and
   starting stock; brushes of 1–9 tiles; start from a generated map or a blank one; PLAY checks that
   every spawn point has a path to a core.
 - **Map file `.fmap`** (format 1.0): content by name, survives game updates. A medium map is ~3 KB.
   Headless has `map-gen` and `map-check`, checked in CI on all three OSes.
+- **Map list** (MAPS in the main menu): maps from the `maps/` folder, each with PLAY and EDIT; NEW MAP
+  makes a new one. The editor saves a new map to `maps/map-NNN.fmap` and an opened one to its own file;
+  undo and redo (Z / Y, up to 64 steps); with unsaved changes, leaving the map takes a second press.
 
 ### Changed
 - **Balance by the report** (`docs/en/balance/2026-11-19-normal-tuned.md`): the base has to grow — by

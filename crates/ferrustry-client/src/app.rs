@@ -11,7 +11,11 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use crate::game::{Button, Game, Input, Key, Request};
+use crate::game::{
+    Button, Game, Input, Key, LEGACY_MAP_FILE, MAPS_DIR, MapEntry, Request, next_map_path,
+};
+use ferrustry_content::ContentRegistry;
+use ferrustry_sim::map::MapDef;
 
 struct Gfx {
     window: Arc<Window>,
@@ -215,28 +219,71 @@ impl App {
                 }
                 self.game.schematic_loaded(res.ok());
             }
-            Request::SaveMap(def) => {
-                let res = ferrustry_format::write_map(&def, &self.game.reg)
-                    .map_err(|e| e.to_string())
-                    .and_then(|b| std::fs::write(Game::map_path(), b).map_err(|e| e.to_string()));
+            Request::SaveMap { def, path } => {
+                let res = save_map(&def, path, &self.game.reg);
                 if let Err(e) = &res {
                     eprintln!("ferrustry: map save failed: {e}");
                 }
                 self.game.map_saved(res);
             }
-            Request::LoadMap => {
-                let res = std::fs::read(Game::map_path())
-                    .map_err(|e| e.to_string())
-                    .and_then(|b| {
-                        ferrustry_format::read_map(&b, &self.game.reg).map_err(|e| e.to_string())
-                    });
+            Request::ListMaps => {
+                let maps = list_maps(&self.game.reg);
+                self.game.maps_listed(maps);
+            }
+            Request::LoadMap { path, purpose } => {
+                let res = read_map_file(&path, &self.game.reg);
                 if let Err(e) = &res {
                     eprintln!("ferrustry: map load failed: {e}");
                 }
-                self.game.map_loaded(res);
+                self.game.map_loaded(&path, purpose, res);
             }
         }
     }
+}
+
+fn read_map_file(path: &str, reg: &ContentRegistry) -> Result<MapDef, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    ferrustry_format::read_map(&bytes, reg).map_err(|e| e.to_string())
+}
+
+/// Записать карту в `path` или в первый свободный файл папки карт; возвращает путь.
+fn save_map(def: &MapDef, path: Option<String>, reg: &ContentRegistry) -> Result<String, String> {
+    let path = match path {
+        Some(p) => p,
+        None => {
+            std::fs::create_dir_all(MAPS_DIR).map_err(|e| format!("{MAPS_DIR}: {e}"))?;
+            next_map_path(|p| std::path::Path::new(p).exists())
+        }
+    };
+    let bytes = ferrustry_format::write_map(def, reg).map_err(|e| e.to_string())?;
+    std::fs::write(&path, bytes).map_err(|e| format!("{path}: {e}"))?;
+    Ok(path)
+}
+
+/// Карты папки `maps/` (по имени) и файл первой версии редактора, если он есть.
+fn list_maps(reg: &ContentRegistry) -> Vec<MapEntry> {
+    let mut paths: Vec<String> = std::fs::read_dir(MAPS_DIR)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "fmap"))
+                .map(|p| {
+                    format!(
+                        "{MAPS_DIR}/{}",
+                        p.file_name().unwrap_or_default().to_string_lossy()
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    paths.sort();
+    if std::path::Path::new(LEGACY_MAP_FILE).exists() {
+        paths.push(LEGACY_MAP_FILE.to_owned());
+    }
+    paths
+        .iter()
+        .map(|p| MapEntry::new(p, &read_map_file(p, reg)))
+        .collect()
 }
 
 fn map_key(code: KeyCode) -> Option<Key> {
@@ -259,6 +306,8 @@ fn map_key(code: KeyCode) -> Option<Key> {
         KeyCode::F1 => Key::Help,
         KeyCode::Tab => Key::NextCategory,
         KeyCode::KeyC => Key::Copy,
+        KeyCode::KeyZ => Key::Undo,
+        KeyCode::KeyY => Key::Redo,
         KeyCode::F6 => Key::SaveSchematic,
         KeyCode::F7 => Key::LoadSchematic,
         KeyCode::Equal | KeyCode::NumpadAdd => Key::Faster,

@@ -2,7 +2,9 @@
 //!
 //! Редактор правит обычный мир в режиме песочницы (симуляция стоит, стройка бесплатна).
 //! «PLAY» снимает с него [`MapDef`] с правилами и стартовым запасом редактора и создаёт
-//! из неё партию, а «SAVE» записывает ту же карту в `.fmap`.
+//! из неё партию, а «SAVE» записывает ту же карту в `.fmap` (в открытый файл или в новый
+//! `maps/map-NNN.fmap`). Каждый мазок кисти и клик — шаг отмены: снимок карты ([`MapDef`],
+//! ~6 байт на тайл), а не всего мира (~30 байт на тайл с полем путей).
 
 use ferrustry_content::{FloorId, ItemId, OreId};
 use ferrustry_render::atlas::palette;
@@ -14,9 +16,6 @@ use ferrustry_sim::{Command, Dir, Rules, TICKS_PER_SECOND, TilePos, World};
 
 use super::{Button, Drag, Game, Input, Request, Screen};
 use crate::ui::{Rect, Ui, text_width};
-
-/// Файл карты по умолчанию.
-pub const MAP_FILE: &str = "ferrustry-map.fmap";
 
 /// Инструмент редактора.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +51,22 @@ const BRUSHES: [i32; 4] = [1, 3, 5, 9];
 /// Предел точек появления врагов.
 const MAX_SPAWNS: usize = 16;
 
+/// Глубина отмены (снимков мира).
+pub const UNDO_DEPTH: usize = 64;
+
+/// Действие, при котором несохранённые изменения пропадут.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Leave {
+    /// Новая случайная карта.
+    Generate,
+    /// Пустая карта.
+    Blank,
+    /// Список карт.
+    Maps,
+    /// Главное меню.
+    Back,
+}
+
 /// Состояние редактора.
 #[derive(Debug, Clone)]
 pub struct Editor {
@@ -59,6 +74,14 @@ pub struct Editor {
     brush: usize,
     waves: usize,
     starter: Vec<(ItemId, u32)>,
+    /// Файл карты (`None` — новая, ещё не сохранённая).
+    pub(super) path: Option<String>,
+    undo: Vec<MapDef>,
+    redo: Vec<MapDef>,
+    /// Карта до начала текущего мазка.
+    before: Option<MapDef>,
+    dirty: bool,
+    confirm: Option<Leave>,
 }
 
 impl Default for Editor {
@@ -68,6 +91,12 @@ impl Default for Editor {
             brush: 1,
             waves: 2,
             starter: Vec::new(),
+            path: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            before: None,
+            dirty: false,
+            confirm: None,
         }
     }
 }
@@ -132,16 +161,13 @@ pub struct EditorLayout {
     pub waves: Rect,
     /// Стартовый запас.
     pub starter: Rect,
-    /// GENERATE, BLANK, SAVE, LOAD, PLAY, BACK.
+    /// UNDO, REDO.
+    pub history: [Rect; 2],
+    /// GENERATE, BLANK, SAVE, MAPS, PLAY, BACK.
     pub actions: [Rect; 6],
 }
 
 impl Game {
-    /// Путь файла карты.
-    pub fn map_path() -> &'static str {
-        MAP_FILE
-    }
-
     /// Инструменты редактора: все полы, все руды, затем остальные.
     pub fn editor_tools(&self) -> Vec<(EditTool, String)> {
         let mut v: Vec<(EditTool, String)> = Vec::new();
@@ -178,6 +204,9 @@ impl Game {
         let brush = [x, below, w, h];
         let waves = [x, below + h + gap, w, h];
         let starter = [x, below + 2.0 * (h + gap), w, h];
+        let hy = below + 3.0 * (h + gap) + 9.0 * u;
+        let hw = (w - gap) / 2.0;
+        let history = [[x, hy, hw, h], [x + hw + gap, hy, hw, h]];
         let (bw, bh, bgap) = (150.0 * u, 40.0 * u, 8.0 * u);
         let x0 = (vw - (6.0 * bw + 5.0 * bgap)) / 2.0;
         let y = vh - bh - 16.0 * u;
@@ -187,6 +216,7 @@ impl Game {
             brush,
             waves,
             starter,
+            history,
             actions,
         }
     }
@@ -201,15 +231,15 @@ impl Game {
         match mapgen::generate(&self.reg, &settings) {
             Ok(w) => {
                 let def = MapDef::from_world(&w, &self.reg);
-                self.edit_map(&def);
+                self.edit_map(&def, None);
             }
             Err(e) => self.notify(format!("CANNOT CREATE MAP: {e}")),
         }
     }
 
     /// Открыть карту в редакторе: правила и стартовый запас переходят в настройки
-    /// редактора, а сам мир правится в песочнице.
-    fn edit_map(&mut self, def: &MapDef) {
+    /// редактора, а сам мир правится в песочнице. История отмены начинается заново.
+    pub(super) fn edit_map(&mut self, def: &MapDef, path: Option<String>) {
         let mut sandbox = def.clone();
         sandbox.rules = Rules::default();
         sandbox.starter.clear();
@@ -217,6 +247,12 @@ impl Game {
             Ok(w) => {
                 self.editor.set_rules(&def.rules);
                 self.editor.starter = def.starter.clone();
+                self.editor.path = path;
+                self.editor.undo.clear();
+                self.editor.redo.clear();
+                self.editor.before = None;
+                self.editor.dirty = false;
+                self.editor.confirm = None;
                 self.world = w;
                 self.camera.center = [
                     self.world.grid().width() as f32 / 2.0,
@@ -243,7 +279,7 @@ impl Game {
         let mut def = MapDef::from_world(&world, &self.reg);
         def.rules = self.editor.rules();
         def.starter = self.editor.starter.clone();
-        self.edit_map(&def);
+        self.edit_map(&def, None);
         self.notify("BLANK MAP: PLACE A CORE AND ENEMY SPAWNS");
     }
 
@@ -295,24 +331,108 @@ impl Game {
         }
     }
 
-    /// Результат записи карты.
-    pub fn map_saved(&mut self, res: Result<(), String>) {
+    /// Результат записи карты: путь файла, куда она записана.
+    pub fn map_saved(&mut self, res: Result<String, String>) {
         match res {
-            Ok(()) => self.notify(format!("MAP SAVED TO {MAP_FILE}")),
+            Ok(path) => {
+                self.notify(format!("MAP SAVED: {path}").to_uppercase());
+                self.editor.path = Some(path);
+                self.editor.dirty = false;
+                self.editor.confirm = None;
+            }
             Err(e) => self.notify(format!("MAP NOT SAVED: {e}").to_uppercase()),
         }
     }
 
-    /// Результат чтения карты: открывает её в редакторе.
-    pub fn map_loaded(&mut self, res: Result<MapDef, String>) {
-        match res {
-            Ok(def) => {
-                self.edit_map(&def);
-                if self.screen == Screen::Editor {
-                    self.notify(format!("MAP LOADED FROM {MAP_FILE}"));
+    /// Есть ли несохранённые изменения.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn editor_dirty(&self) -> bool {
+        self.editor.dirty
+    }
+
+    /// Запомнить карту перед изменением (начало мазка или клика).
+    fn editor_begin(&mut self) {
+        self.editor.before = Some(MapDef::from_world(&self.world, &self.reg));
+    }
+
+    /// Закончить изменение: если карта изменилась, это шаг отмены.
+    fn editor_commit(&mut self) {
+        let Some(before) = self.editor.before.take() else {
+            return;
+        };
+        if before == MapDef::from_world(&self.world, &self.reg) {
+            return;
+        }
+        if self.editor.undo.len() >= UNDO_DEPTH {
+            self.editor.undo.remove(0);
+        }
+        self.editor.undo.push(before);
+        self.editor.redo.clear();
+        self.editor.dirty = true;
+        self.editor.confirm = None;
+    }
+
+    /// Вернуть песочницу к снимку; возвращает снимок текущего состояния.
+    fn editor_restore(&mut self, def: &MapDef) -> Option<MapDef> {
+        let now = MapDef::from_world(&self.world, &self.reg);
+        match def.instantiate(&self.reg, self.seed) {
+            Ok(w) => {
+                self.world = w;
+                self.editor.dirty = true;
+                Some(now)
+            }
+            Err(e) => {
+                self.notify(format!("CANNOT RESTORE: {e}").to_uppercase());
+                None
+            }
+        }
+    }
+
+    /// Отменить последний шаг.
+    pub fn editor_undo(&mut self) {
+        match self.editor.undo.pop() {
+            Some(d) => {
+                if let Some(now) = self.editor_restore(&d) {
+                    self.editor.redo.push(now);
                 }
             }
-            Err(e) => self.notify(format!("MAP NOT LOADED: {e}").to_uppercase()),
+            None => self.notify("NOTHING TO UNDO"),
+        }
+    }
+
+    /// Повторить отменённый шаг.
+    pub fn editor_redo(&mut self) {
+        match self.editor.redo.pop() {
+            Some(d) => {
+                if let Some(now) = self.editor_restore(&d) {
+                    self.editor.undo.push(now);
+                }
+            }
+            None => self.notify("NOTHING TO REDO"),
+        }
+    }
+
+    /// Уйти с карты; при несохранённых изменениях — только со второго раза.
+    pub fn editor_leave(&mut self, leave: Leave) {
+        if self.editor.dirty && self.editor.confirm != Some(leave) {
+            self.editor.confirm = Some(leave);
+            self.notify("UNSAVED CHANGES: SAVE, OR CLICK AGAIN TO DISCARD");
+            return;
+        }
+        self.editor.confirm = None;
+        self.drag = None;
+        match leave {
+            Leave::Generate => {
+                self.seed = self
+                    .seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                self.open_editor();
+                self.notify(format!("GENERATED MAP, SEED {}", self.seed));
+            }
+            Leave::Blank => self.blank_map(),
+            Leave::Maps => self.open_maps(),
+            Leave::Back => self.screen = Screen::MainMenu,
         }
     }
 
@@ -331,19 +451,27 @@ impl Game {
                 let erase = b == Button::Right;
                 match (self.editor.tool, erase) {
                     // одиночные действия — по нажатию
-                    (Some(EditTool::Spawn | EditTool::Core), false) => self.editor_click(),
+                    (Some(EditTool::Spawn | EditTool::Core), false) => {
+                        self.editor_begin();
+                        self.editor_click();
+                        self.editor_commit();
+                    }
                     (None, false) => self.notify("CHOOSE A TOOL ON THE LEFT"),
                     _ => {
+                        self.editor_begin();
                         self.drag = Some(Drag::Paint(erase));
                         self.editor_paint(erase);
                     }
                 }
             }
-            Input::MouseUp(_) => {
-                if matches!(self.drag, Some(Drag::Paint(_) | Drag::Pan(_))) {
+            Input::MouseUp(_) => match self.drag {
+                Some(Drag::Paint(_)) => {
                     self.drag = None;
+                    self.editor_commit();
                 }
-            }
+                Some(Drag::Pan(_)) => self.drag = None,
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -503,12 +631,18 @@ impl Game {
         );
         let l = self.editor_layout();
         let tools = self.editor_tools();
-        let bottom = l.starter[1] + l.starter[3] + 10.0 * u;
+        let bottom = l.history[0][1] + l.history[0][3] + 10.0 * u;
         ui.panel(hud, atlas, white, [0.0, 0.0, 254.0 * u, bottom], panel);
         hud.text(atlas, 12.0 * u, 14.0 * u, 3.0 * u, "MAP EDITOR", orange);
         let g = self.world.grid();
+        let name = self
+            .editor
+            .path
+            .as_deref()
+            .map_or_else(|| "NEW MAP".to_owned(), super::maps::map_name);
         let info = format!(
-            "{}X{}  SPAWNS {}",
+            "{name}{}  {}X{}  SPAWNS {}",
+            if self.editor.dirty { "*" } else { "" },
             g.width(),
             g.height(),
             self.world.spawns().len()
@@ -534,6 +668,7 @@ impl Game {
         let waves = self.editor.waves_label();
         if ui.button(hud, atlas, white, l.waves, waves, 2.0 * u, true) {
             self.editor.waves = (self.editor.waves + 1) % WAVE_PRESETS.len();
+            self.editor.dirty = true;
         }
         let ingot = self.reg.item_by_name("iron_ingot");
         let have = ingot
@@ -552,6 +687,15 @@ impl Game {
             if next > 0 {
                 self.editor.starter.push((i, next));
             }
+            self.editor.dirty = true;
+        }
+        let [undo, redo] = l.history;
+        let (can_undo, can_redo) = (!self.editor.undo.is_empty(), !self.editor.redo.is_empty());
+        if ui.button(hud, atlas, white, undo, "UNDO", 2.0 * u, can_undo) {
+            self.editor_undo();
+        }
+        if ui.button(hud, atlas, white, redo, "REDO", 2.0 * u, can_redo) {
+            self.editor_redo();
         }
 
         let a = l.actions[0];
@@ -568,7 +712,7 @@ impl Game {
             ],
             panel,
         );
-        let labels = ["GENERATE", "BLANK", "SAVE", "LOAD", "PLAY", "BACK"];
+        let labels = ["GENERATE", "BLANK", "SAVE", "MAPS", "PLAY", "BACK"];
         let mut clicked = None;
         for (k, (r, name)) in l.actions.iter().zip(labels).enumerate() {
             if ui.button(hud, atlas, white, *r, name, 2.0 * u, true) {
@@ -576,27 +720,19 @@ impl Game {
             }
         }
         match clicked {
-            Some(0) => {
-                self.seed = self
-                    .seed
-                    .wrapping_mul(6_364_136_223_846_793_005)
-                    .wrapping_add(1);
-                self.open_editor();
-                self.notify(format!("GENERATED MAP, SEED {}", self.seed));
-            }
-            Some(1) => self.blank_map(),
-            Some(2) => self
-                .requests
-                .push(Request::SaveMap(Box::new(self.editor_map()))),
-            Some(3) => self.requests.push(Request::LoadMap),
+            Some(0) => self.editor_leave(Leave::Generate),
+            Some(1) => self.editor_leave(Leave::Blank),
+            Some(2) => self.requests.push(Request::SaveMap {
+                def: Box::new(self.editor_map()),
+                path: self.editor.path.clone(),
+            }),
+            Some(3) => self.editor_leave(Leave::Maps),
             Some(4) => self.editor_play(),
-            Some(5) => {
-                self.drag = None;
-                self.screen = Screen::MainMenu;
-            }
+            Some(5) => self.editor_leave(Leave::Back),
             _ => {}
         }
-        let hint = "LMB PAINT   RMB ERASE   MMB/WASD MOVE   WHEEL ZOOM   ESC BACK";
+        let hint =
+            "LMB PAINT   RMB ERASE   Z UNDO   Y REDO   MMB/WASD MOVE   WHEEL ZOOM   ESC BACK";
         hud.text(
             atlas,
             (vw - text_width(hint, 2.0 * u)) / 2.0,
@@ -759,6 +895,93 @@ mod tests {
             Some(slag)
         );
         assert!(g.editor_map().instantiate(&g.reg, 1).is_ok());
+    }
+
+    #[test]
+    fn undo_and_redo_strokes() {
+        let mut g = game();
+        g.blank_map();
+        let iron = g.reg.ore_by_name("iron_vein").unwrap();
+        let t = TilePos::new(20, 20);
+        assert!(!g.editor_dirty());
+        // клик без изменений (снос пустого места) — не шаг отмены
+        pick(&mut g, EditTool::Erase);
+        at_tile(&mut g, t);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        assert!(g.editor.undo.is_empty() && !g.editor_dirty());
+        // мазок с протяжкой — один шаг
+        pick(&mut g, EditTool::Ore(iron));
+        g.handle(Input::MouseDown(Button::Left));
+        at_tile(&mut g, TilePos::new(30, 20));
+        g.handle(Input::MouseUp(Button::Left));
+        pick(&mut g, EditTool::Spawn);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        assert_eq!(g.editor.undo.len(), 2);
+        assert!(g.editor_dirty());
+        let painted = MapDef::from_world(&g.world, &g.reg);
+        g.handle(Input::Key(crate::game::Key::Undo, true));
+        assert!(g.world.spawns().is_empty());
+        assert_eq!(g.world.grid().ore(t), Some(iron));
+        g.editor_undo();
+        assert_eq!(g.world.grid().ore(t), None);
+        assert_eq!(g.world.grid().ore(TilePos::new(30, 20)), None);
+        g.handle(Input::Key(crate::game::Key::Redo, true));
+        g.editor_redo();
+        assert_eq!(MapDef::from_world(&g.world, &g.reg), painted);
+        // новый шаг после отмены стирает повтор
+        g.editor_undo();
+        pick(&mut g, EditTool::ClearOre);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        assert!(g.editor.redo.is_empty());
+    }
+
+    #[test]
+    fn unsaved_changes_need_a_second_click() {
+        let mut g = game();
+        g.blank_map();
+        pick(&mut g, EditTool::Spawn);
+        at_tile(&mut g, TilePos::new(10, 10));
+        g.handle(Input::MouseDown(Button::Left));
+        assert!(g.editor_dirty());
+        g.editor_leave(Leave::Back);
+        assert_eq!(g.screen(), Screen::Editor, "first click only warns");
+        g.editor_leave(Leave::Maps);
+        assert_eq!(g.screen(), Screen::Editor, "another action warns again");
+        g.handle(Input::Key(crate::game::Key::Cancel, true));
+        g.handle(Input::Key(crate::game::Key::Cancel, true));
+        assert_eq!(g.screen(), Screen::MainMenu);
+        // после сохранения уходим сразу
+        g.blank_map();
+        g.handle(Input::MouseDown(Button::Left));
+        g.map_saved(Ok("maps/map-002.fmap".into()));
+        assert!(!g.editor_dirty());
+        g.editor_leave(Leave::Back);
+        assert_eq!(g.screen(), Screen::MainMenu);
+    }
+
+    #[test]
+    fn undo_depth_is_bounded() {
+        let mut g = game();
+        g.blank_map();
+        let iron = g.reg.ore_by_name("iron_vein").unwrap();
+        at_tile(&mut g, TilePos::new(10, 10));
+        for i in 0..UNDO_DEPTH + 5 {
+            // руда и её стирание по очереди: каждый мазок меняет карту
+            pick(
+                &mut g,
+                if i % 2 == 0 {
+                    EditTool::Ore(iron)
+                } else {
+                    EditTool::ClearOre
+                },
+            );
+            g.handle(Input::MouseDown(Button::Left));
+            g.handle(Input::MouseUp(Button::Left));
+        }
+        assert_eq!(g.editor.undo.len(), UNDO_DEPTH);
     }
 
     #[test]

@@ -51,7 +51,7 @@ continued with the same state hash.
 | R-02 | Mip levels / LOD for zooming out | Ore "shimmers" at small scale (aliasing without mips) |
 | R-03 | Interpolating item movement between ticks | Items are currently drawn at their last-tick position (30 Hz) |
 | R-04 | Brand fonts (Inter, JetBrains Mono, Exo 2; OFL) | Currently a built-in 5×7 pixel font |
-| R-05 | Main menu, settings screen, map selection | **Partial (2026-11-20)**: main menu, pause menu, F1 help, clickable hotbar, DPI scaling, new game screen (size, difficulty, seed), map editor; no settings screen or map list (one map file) |
+| R-05 | Main menu, settings screen, map selection | **Partial (2026-11-20)**: main menu, pause menu, F1 help, clickable hotbar, DPI scaling, new game screen (size, difficulty, seed), map editor, map list (the `maps/` folder); no settings screen |
 
 ## Performance backlog
 

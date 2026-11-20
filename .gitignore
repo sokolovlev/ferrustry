@@ -6,3 +6,4 @@ bench-*.json
 ferrustry-quicksave.fsave
 /ferrustry-map.fmap
 /ferrustry-schematic.fschem
+/maps/
