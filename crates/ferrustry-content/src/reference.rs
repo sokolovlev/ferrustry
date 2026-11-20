@@ -59,6 +59,7 @@ impl ContentRegistry {
             BlockKind::Conveyor { .. }
             | BlockKind::Splitter
             | BlockKind::Sorter
+            | BlockKind::Overflow
             | BlockKind::Bridge { .. }
             | BlockKind::Depot { .. } => 0,
             BlockKind::Drill { .. } | BlockKind::Crafter { .. } | BlockKind::Core { .. } => 1,
@@ -190,6 +191,12 @@ impl ContentRegistry {
                 "hands out items to its three other sides in turn"
             } else {
                 "раздаёт предметы по кругу на три другие стороны"
+            }
+            .into(),
+            BlockKind::Overflow => if en {
+                "items go straight; when the way ahead is blocked, sideways (alternating)"
+            } else {
+                "предметы идут прямо; если впереди занято — вбок (поочерёдно)"
             }
             .into(),
             BlockKind::Sorter => if en {

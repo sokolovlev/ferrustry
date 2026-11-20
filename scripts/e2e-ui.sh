@@ -23,7 +23,7 @@ click 640 311                     # NEW GAME
 shot e2e-newgame
 click 640 504                     # START (Game::new_game_layout)
 sleep 1
-click 500 648                     # слот 1: лента (вкладка LOGISTICS: 5 слотов по 64+6 px, по центру)
+click 465 648                     # слот 1: лента (вкладка LOGISTICS: 6 слотов по 64+6 px, по центру)
 xdotool mousemove 300 450; sleep 0.3; xdotool mousedown 1; sleep 0.2
 xdotool mousemove 500 450; sleep 0.2; xdotool mousemove 700 450; sleep 0.2
 xdotool mouseup 1; sleep 0.8

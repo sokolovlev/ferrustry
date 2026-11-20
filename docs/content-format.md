@@ -53,6 +53,7 @@ scripts/check.sh                                                # все про�
 | `Conveyor` | `speed` — единиц пути за тик (тайл = 256, шаг предметов = 64) | size 1; speed > 0 |
 | `Splitter` | — | size 1 |
 | `Sorter` | — (фильтр задаётся игроком) | size 1 |
+| `Overflow` | — (прямо, а если впереди занято — вбок) | size 1 |
 | `Bridge` | `range` тайлов, `interval` тиков на предмет, `buffer` | size 1; все > 0 |
 | `Depot` | `capacity` — всего предметов | capacity > 0; size ≤ 8 |
 | `Drill` | `base_ticks` — тиков на предмет при руде под всеми тайлами; `buffer` | > 0 |

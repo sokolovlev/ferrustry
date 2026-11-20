@@ -33,7 +33,7 @@ You start with only the core and **300 iron ingots**.
 
 | Key / mouse | Action |
 |---|---|
-| **1–5** or click a slot | Choose a building in the tab |
+| **1–6** or click a slot | Choose a building in the tab |
 | **Tab** or click a tab | Switch tab (LOGISTICS, PRODUCTION, DEFENSE, POWER, FLUIDS+HEAT) |
 | LMB | Build |
 | LMB drag | A line of buildings; belts turn the corner |
@@ -78,6 +78,8 @@ input or has nowhere to put its output.
 
 - The **splitter** hands out items to its three other sides in turn.
 - The **sorter**: items matching the filter chosen in the inspector go straight, the rest alternate sideways.
+- The **overflow gate**: items go straight while there is room ahead; the surplus alternates sideways.
+  Handy for feeding the main line first and sending the rest to a depot or to turrets.
 - The **bridge conveyor** throws items up to 4 tiles over obstacles to the next bridge facing the same way.
 - The **depot** (2×2) is a buffer for 300 items. It accepts from three sides and outputs only **forward**
   (the arrow on the sprite; rotate with R), one item per tick. If the next item isn't accepted,

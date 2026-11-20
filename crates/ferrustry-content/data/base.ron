@@ -123,6 +123,13 @@
             kind: Sorter,
         ),
         (
+            name: "overflow_gate",
+            cost: [("iron_ingot", 4)],
+            size: 1,
+            // прямо, пока впереди есть место; излишек — вбок
+            kind: Overflow,
+        ),
+        (
             name: "bridge_conveyor",
             cost: [("iron_ingot", 6)],
             size: 1,

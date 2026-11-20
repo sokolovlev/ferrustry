@@ -439,6 +439,16 @@ fn draw_block(name: &str, size: u8) -> Canvas {
             c.thick_line((3.0, 16.0), (8.0, 16.0), 1.2, TITANIUM);
             c.thick_line((24.0, 16.0), (29.0, 16.0), 1.2, TITANIUM);
         }
+        "overflow_gate" => {
+            // прямая стрелка насквозь и короткие боковые — «излишек вбок»
+            c.frame(2, 3);
+            c.fill(9, 9, 14, 14, SHADOW);
+            c.thick_line((5.0, 16.0), (26.0, 16.0), 1.6, MOLTEN_GOLD);
+            c.thick_line((26.0, 16.0), (21.0, 12.0), 1.3, MOLTEN_GOLD);
+            c.thick_line((26.0, 16.0), (21.0, 20.0), 1.3, MOLTEN_GOLD);
+            c.thick_line((16.0, 16.0), (16.0, 5.0), 1.0, TITANIUM);
+            c.thick_line((16.0, 16.0), (16.0, 27.0), 1.0, TITANIUM);
+        }
         "bridge_conveyor" => {
             c.fill(4, 4, 24, 24, SHADOW);
             c.fill(6, 6, 20, 20, GUNMETAL);

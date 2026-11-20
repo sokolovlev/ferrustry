@@ -266,6 +266,7 @@ enum RawKind {
     },
     Splitter,
     Sorter,
+    Overflow,
     Bridge {
         range: u32,
         interval: u32,
@@ -468,6 +469,8 @@ pub enum BlockKind {
     Splitter,
     /// Сортировщик 1×1: предметы фильтра идут прямо, остальные — вбок (поочерёдно влево/вправо).
     Sorter,
+    /// Переполнитель 1×1: предмет идёт прямо, а если впереди занято — вбок (поочерёдно).
+    Overflow,
     /// Мост: переносит предметы над тайлами к следующему мосту того же направления.
     Bridge {
         /// Дальность поиска партнёра в тайлах.
@@ -906,17 +909,17 @@ impl ContentRegistry {
                     positive(capacity, || p("capacity"))?;
                     BlockKind::Core { capacity }
                 }
-                RawKind::Splitter | RawKind::Sorter => {
+                RawKind::Splitter | RawKind::Sorter | RawKind::Overflow => {
                     if block.size != 1 {
                         return Err(ContentError::Invalid {
                             path: p("size"),
-                            reason: "splitters and sorters must have size 1".into(),
+                            reason: "splitters, sorters and overflow gates must have size 1".into(),
                         });
                     }
-                    if matches!(&block.kind, RawKind::Splitter) {
-                        BlockKind::Splitter
-                    } else {
-                        BlockKind::Sorter
+                    match &block.kind {
+                        RawKind::Splitter => BlockKind::Splitter,
+                        RawKind::Sorter => BlockKind::Sorter,
+                        _ => BlockKind::Overflow,
                     }
                 }
                 RawKind::Bridge {

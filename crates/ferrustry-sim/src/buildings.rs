@@ -31,6 +31,8 @@ pub enum KindTag {
     Splitter,
     /// Сортировщик.
     Sorter,
+    /// Переполнитель.
+    Overflow,
     /// Мост.
     Bridge,
     /// Батарея.

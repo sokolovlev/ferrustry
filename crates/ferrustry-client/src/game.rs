@@ -125,7 +125,14 @@ const SCHEMATIC_FILE: &str = "ferrustry-schematic.fschem";
 const CATEGORIES: [(&str, &[&str]); 5] = [
     (
         "LOGISTICS",
-        &["conveyor", "splitter", "sorter", "bridge_conveyor", "depot"],
+        &[
+            "conveyor",
+            "splitter",
+            "sorter",
+            "overflow_gate",
+            "bridge_conveyor",
+            "depot",
+        ],
     ),
     ("PRODUCTION", &["bore", "smelter", "steel_forge", "core"]),
     ("DEFENSE", &["gun_turret", "arc_tower", "iron_wall"]),
@@ -377,7 +384,7 @@ impl Game {
                 self.inspected = None;
                 self.screen = Screen::Playing;
                 self.message = Some((
-                    "CHOOSE A BUILDING BELOW (1-5, TAB: CATEGORY), THEN CLICK THE MAP".into(),
+                    "CHOOSE A BUILDING BELOW (1-6, TAB: CATEGORY), THEN CLICK THE MAP".into(),
                     8.0,
                 ));
             }
@@ -445,7 +452,7 @@ impl Game {
                         self.inspected = Some(t); // клик по постройке без инструмента — осмотр
                     } else {
                         self.inspected = None;
-                        self.notify("CHOOSE A BUILDING BELOW (1-5, TAB: CATEGORY)");
+                        self.notify("CHOOSE A BUILDING BELOW (1-6, TAB: CATEGORY)");
                     }
                 }
             }
@@ -1352,7 +1359,7 @@ impl Game {
                 self.rot
             ),
             (None, None) => {
-                "CHOOSE A BUILDING (CLICK OR 1-5, TAB: CATEGORY), THEN CLICK THE MAP".to_owned()
+                "CHOOSE A BUILDING (CLICK OR 1-6, TAB: CATEGORY), THEN CLICK THE MAP".to_owned()
             }
         };
         let r0 = self.hotbar_rect(0);
@@ -1415,7 +1422,7 @@ impl Game {
             let lines = [
                 "CONTROLS",
                 "",
-                "1-5 / CLICK         CHOOSE BUILDING",
+                "1-6 / CLICK         CHOOSE BUILDING",
                 "TAB / CLICK TAB     BUILDING CATEGORY",
                 "C + DRAG            COPY BUILDINGS (THEN CLICK TO PASTE)",
                 "F6 / F7             SAVE / LOAD SCHEMATIC",
@@ -1543,7 +1550,7 @@ impl Game {
                     pct(*stored, u64::from(*capacity))
                 ));
             }
-            Detail::Splitter { item } => {
+            Detail::Splitter { item } | Detail::Overflow { item } => {
                 lines.push(format!(
                     "HOLDING {}",
                     item.map_or("NOTHING".to_owned(), |i| self.item_name(i))
@@ -1740,6 +1747,7 @@ impl Game {
             }
             BlockKind::Splitter => format!("{name}: SPLITS ITEMS TO THE OTHER 3 SIDES"),
             BlockKind::Sorter => format!("{name}: FILTER STRAIGHT, REST SIDEWAYS"),
+            BlockKind::Overflow => format!("{name}: STRAIGHT, SIDEWAYS WHEN BLOCKED"),
             BlockKind::Bridge { range, .. } => {
                 format!("{name}: JUMPS {range} TILES TO NEXT BRIDGE")
             }

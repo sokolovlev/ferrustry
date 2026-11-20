@@ -28,7 +28,7 @@ cargo run --release -p ferrustry-client
 ingots; ore and carbon are nearby, and enemies arrive from the map edges in a few minutes.
 
 First chain: a **bore** on ore → **conveyor** → **smelter** (two **wind turbines** next to it) → conveyor → **core**.
-Pick buildings on the bottom panel (click or **1–5**, **Tab** switches the tab), place them with a click,
+Pick buildings on the bottom panel (click or **1–6**, **Tab** switches the tab), place them with a click,
 drag to build a line. **F1** in the game lists the keys.
 
 How production, power, heat, combat and schematics work: the **[player guide](docs/en/player-guide.md)**;

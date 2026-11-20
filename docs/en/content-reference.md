@@ -26,6 +26,7 @@ Floors: `basalt`, `ash`, `slag_pool` (not buildable).
 | `depot` | 2×2 | 20 `iron_ingot` | 240 | stores 300 items: accepts from three sides, outputs forward up to 30 items/s |
 | `splitter` | 1×1 | 3 `iron_ingot` | 60 | hands out items to its three other sides in turn |
 | `sorter` | 1×1 | 4 `iron_ingot` | 60 | filter items go straight, the rest alternate sideways |
+| `overflow_gate` | 1×1 | 4 `iron_ingot` | 60 | items go straight; when the way ahead is blocked, sideways (alternating) |
 | `bridge_conveyor` | 1×1 | 6 `iron_ingot` | 60 | throws items up to 4 tiles to the next bridge; 7.5 items/s; buffer 4 |
 
 ### Production

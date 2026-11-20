@@ -7,6 +7,10 @@ saves are incompatible between minor versions (the game reports a format version
 
 ## Unreleased
 
+### Added
+- **Overflow gate** `overflow_gate`: items go straight while there is room ahead, the surplus
+  alternates sideways. The LOGISTICS tab has 6 buildings (keys 1–6).
+
 ### Changed
 - **Balance by the report** (`docs/en/balance/2026-11-19-normal-tuned.md`): the base has to grow — by
   wave 5 it takes ~2 production cells, by wave 10 ~6, by 15 ~10, by 20 ~16 (was 1 / 2 / 3 / 5). Waves:

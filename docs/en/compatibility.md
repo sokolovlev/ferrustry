@@ -11,7 +11,7 @@ is **not a goal**.
 | Map (`.fmap`) | Terrain, ore, starting buildings, rules | Not implemented | Read all later versions of the format ≥ 1.0 |
 | Save (`.fsave`) | Full simulation state | **Partial** (format 7.0 since 2026-11-19 — the wave timer driven by the base's noise; 6.x and older files are rejected with a version error — no migrations before release): container v1.0, round-trip and continuation with the same hash are tested; content ID remapping and migrations are not implemented (a file with different content is rejected) | Read saves of the previous minor game version; migrations |
 | Schematic (`.fschem`, + a base64 text string) | A build fragment to copy | **Implemented** (without the text string): buildings by content **name**, bounds checking | Always backward compatible; an unknown building is a clear error |
-| Content (RON) | Resources, blocks, units, recipes | **Implemented**: items, fluids, floors, ores, 20 building kinds, enemies and wave composition ([format](content-format.md)) | The schema is versioned, validator |
+| Content (RON) | Resources, blocks, units, recipes | **Implemented**: items, fluids, floors, ores, 21 building kinds, enemies and wave composition ([format](content-format.md)) | The schema is versioned, validator |
 | Network protocol | Client ↔ server | Not implemented | Exact `protocol_version` match |
 | Replay (`.freplay`) | Initial world + command stream + checkpoint hashes | **Implemented**: container v1.0, sections NAMES/META/WORLD/INPUTS/CHECKPOINTS | Only the same simulation version (`SIM_VERSION`) and the same content |
 

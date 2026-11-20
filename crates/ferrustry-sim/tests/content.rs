@@ -529,3 +529,53 @@ fn noise_speedup_is_capped() {
     assert_eq!(rule.timer_rate(10), 1000 + 10 * rule.speedup_per_unit);
     assert_eq!(rule.timer_rate(1_000_000), 1000 + rule.max_speedup);
 }
+
+/// Переполнитель: прямо, пока впереди есть место; излишек — вбок, поочерёдно; ничего не теряется.
+#[test]
+fn overflow_gate_feeds_straight_first_then_sideways() {
+    let reg = reg();
+    let ids = BaseIds::resolve(&reg).unwrap();
+    let gate = b(&reg, "overflow_gate");
+    let mut w = empty(&reg, 16, 12);
+    // вход слева: лента 1..5 → переполнитель (5,5)
+    let mut cmds: Vec<Command> = (1..5)
+        .map(|x| place(ids.conveyor, x, 5, Dir::Right))
+        .collect();
+    cmds.push(place(gate, 5, 5, Dir::Right));
+    scenario::build(&mut w, &reg, &cmds).unwrap();
+    w.debug_fill_conveyors(ids.iron_ore, 64);
+    let spawned = w.stats().spawned[usize::from(ids.iron_ore.0)];
+    // выходы (пустые, в тупик): прямо (6..9), вверх (5, 6..9), вниз (5, 4..1)
+    let mut outs: Vec<Command> = (6..9)
+        .map(|x| place(ids.conveyor, x, 5, Dir::Right))
+        .collect();
+    outs.extend((6..9).map(|y| place(ids.conveyor, 5, y, Dir::Up)));
+    outs.extend((2..5).rev().map(|y| place(ids.conveyor, 5, y, Dir::Down)));
+    scenario::build(&mut w, &reg, &outs).unwrap();
+    let on = |w: &World, tiles: &[TilePos]| -> usize {
+        let wanted: Vec<TilePos> = tiles.to_vec();
+        w.segments()
+            .filter(|s| s.tiles().iter().any(|t| wanted.contains(t)))
+            .map(|s| s.item_count())
+            .sum()
+    };
+    let front: Vec<TilePos> = (6..9).map(|x| TilePos::new(x, 5)).collect();
+    let up: Vec<TilePos> = (6..9).map(|y| TilePos::new(5, y)).collect();
+    let down: Vec<TilePos> = (2..5).map(|y| TilePos::new(5, y)).collect();
+    run(&mut w, &reg, 30);
+    assert!(on(&w, &front) > 0);
+    assert_eq!(
+        on(&w, &up) + on(&w, &down),
+        0,
+        "room ahead: nothing goes sideways"
+    );
+    run(&mut w, &reg, 600);
+    let (f, u, d) = (on(&w, &front), on(&w, &up), on(&w, &down));
+    assert!(f >= 12, "the front line filled up first: {f}");
+    assert!(u > 0 && d > 0, "surplus goes both ways: up {u}, down {d}");
+    assert!(u.abs_diff(d) <= 1, "sides alternate: up {u}, down {d}");
+    let total = w.items_on_conveyors()[usize::from(ids.iron_ore.0)]
+        + w.items_in_buffers(&reg)[usize::from(ids.iron_ore.0)];
+    assert_eq!(total, spawned, "no item lost or created");
+    w.validate(&reg).unwrap();
+}

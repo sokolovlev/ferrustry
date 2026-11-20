@@ -23,14 +23,16 @@ impl World {
         };
         let row = b.row as usize;
         match b.tag {
-            KindTag::Splitter | KindTag::Sorter => match self.routers.rows.get_mut(row) {
-                Some(r) if r.item.is_none() => {
-                    r.item = Some(item);
-                    r.from = side;
-                    true
+            KindTag::Splitter | KindTag::Sorter | KindTag::Overflow => {
+                match self.routers.rows.get_mut(row) {
+                    Some(r) if r.item.is_none() => {
+                        r.item = Some(item);
+                        r.from = side;
+                        true
+                    }
+                    _ => false,
                 }
-                _ => false,
-            },
+            }
             KindTag::Bridge => {
                 let BlockKind::Bridge { buffer, .. } = reg.block(b.block).kind else {
                     return false;
@@ -75,6 +77,17 @@ impl World {
                         }
                     }
                 }
+                KindTag::Overflow => {
+                    // прямо, пока впереди принимают; иначе вбок, поочерёдно
+                    out[0] = Some(travel);
+                    if cursor % 2 == 0 {
+                        out[1] = Some(rot_left(travel));
+                        out[2] = Some(rot_right(travel));
+                    } else {
+                        out[1] = Some(rot_right(travel));
+                        out[2] = Some(rot_left(travel));
+                    }
+                }
                 _ => {
                     if filter == Some(item) {
                         out[0] = Some(travel);
@@ -93,6 +106,8 @@ impl World {
                     row.item = None;
                     row.cursor = match tag {
                         KindTag::Splitter => (d as u8 + 1) % 4,
+                        // чередование сторон — только когда предмет ушёл вбок
+                        KindTag::Overflow if d == travel => row.cursor,
                         _ => row.cursor.wrapping_add(1),
                     };
                     break;

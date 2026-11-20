@@ -701,6 +701,7 @@ impl World {
             BlockKind::Core { .. } => KindTag::Core,
             BlockKind::Splitter => KindTag::Splitter,
             BlockKind::Sorter => KindTag::Sorter,
+            BlockKind::Overflow => KindTag::Overflow,
             BlockKind::Bridge { .. } => KindTag::Bridge,
             BlockKind::Battery { .. } => KindTag::Battery,
             BlockKind::Pipe { .. } => KindTag::Pipe,
@@ -792,7 +793,7 @@ impl World {
                     items: vec![0; self.item_count as usize],
                 },
             ),
-            BlockKind::Splitter | BlockKind::Sorter => self.routers.push(
+            BlockKind::Splitter | BlockKind::Sorter | BlockKind::Overflow => self.routers.push(
                 id,
                 RouterRow {
                     item: None,
@@ -956,7 +957,7 @@ impl World {
                 }
                 m
             }),
-            KindTag::Splitter | KindTag::Sorter => {
+            KindTag::Splitter | KindTag::Sorter | KindTag::Overflow => {
                 self.routers.swap_remove(b.row).map(|(row, m)| {
                     if let Some(item) = row.item {
                         Stats::bump(&mut self.stats.destroyed, item, 1);
@@ -1272,7 +1273,7 @@ impl World {
                     Link::Building(id)
                 }
             }
-            KindTag::Splitter | KindTag::Sorter | KindTag::Bridge => {
+            KindTag::Splitter | KindTag::Sorter | KindTag::Overflow | KindTag::Bridge => {
                 let Some(side) = dir_between(target, from) else {
                     return Link::Refuses;
                 };
@@ -2042,7 +2043,7 @@ impl World {
                 ),
                 KindTag::PowerNode => (self.nodes.len(), self.nodes.owners.get(b.row as usize)),
                 KindTag::Core => (self.cores.len(), self.cores.owners.get(b.row as usize)),
-                KindTag::Splitter | KindTag::Sorter => {
+                KindTag::Splitter | KindTag::Sorter | KindTag::Overflow => {
                     (self.routers.len(), self.routers.owners.get(b.row as usize))
                 }
                 KindTag::Bridge => (self.bridges.len(), self.bridges.owners.get(b.row as usize)),
@@ -2310,6 +2311,11 @@ pub enum Detail {
         /// Предмет в буфере.
         item: Option<ItemId>,
     },
+    /// Переполнитель.
+    Overflow {
+        /// Предмет в буфере.
+        item: Option<ItemId>,
+    },
     /// Сортировщик.
     Sorter {
         /// Предмет в буфере.
@@ -2456,6 +2462,9 @@ impl World {
                 capacity: *capacity,
             },
             (_, KindTag::Splitter) => Detail::Splitter {
+                item: self.routers.rows.get(row)?.item,
+            },
+            (_, KindTag::Overflow) => Detail::Overflow {
                 item: self.routers.rows.get(row)?.item,
             },
             (_, KindTag::Sorter) => {

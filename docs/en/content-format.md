@@ -53,6 +53,7 @@ scripts/check.sh                                                # all checks
 | `Conveyor` | `speed` — path units per tick (tile = 256, item spacing = 64) | size 1; speed > 0 |
 | `Splitter` | — | size 1 |
 | `Sorter` | — (the filter is set by the player) | size 1 |
+| `Overflow` | — (straight, sideways when blocked) | size 1 |
 | `Bridge` | `range` in tiles, `interval` ticks per item, `buffer` | size 1; all > 0 |
 | `Depot` | `capacity` — items in total | capacity > 0; size ≤ 8 |
 | `Drill` | `base_ticks` — ticks per item with ore under every tile; `buffer` | > 0 |
