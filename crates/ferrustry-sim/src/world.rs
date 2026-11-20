@@ -828,7 +828,7 @@ impl World {
             b.row = row;
         }
         if def.is_power() {
-            self.power.dirty = true;
+            self.power_attach(reg, id);
         }
         if tag == KindTag::Drill {
             self.wake_drill(id);
@@ -927,7 +927,7 @@ impl World {
         }
         let def = reg.block(b.block);
         if def.is_power() {
-            self.power.dirty = true;
+            self.power_detach(reg, crate::power::PowerShape::of(id, &b), b.power_net);
         }
         self.mark_thermal_dirty(reg, b.block);
         let mut old_segment = None;
@@ -2007,6 +2007,9 @@ impl World {
     /// Проверка структурной целостности мира (после загрузки файла или в тестах).
     pub fn validate(&self, reg: &ContentRegistry) -> Result<(), String> {
         self.grid.validate()?;
+        if !self.power.dirty {
+            self.validate_power(reg)?;
+        }
         if self.item_count as usize != reg.items().len() {
             return Err("item count does not match content".into());
         }
@@ -2089,6 +2092,9 @@ impl World {
                 && (n as usize) >= self.power.nets.len()
             {
                 return Err("power net out of range".into());
+            }
+            if b.power_net.is_some() != def.is_power() {
+                return Err(format!("power net presence is wrong at {:?}", b.origin));
             }
             if let (KindTag::Drill, &BlockKind::Drill { base_ticks, buffer }) = (b.tag, &def.kind) {
                 let row = &self.drills.rows[b.row as usize];

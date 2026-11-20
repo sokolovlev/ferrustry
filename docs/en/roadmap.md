@@ -9,7 +9,7 @@ Every stage ends with a verifiable result. Task IDs are used in commits and issu
 | 0. Research and architecture | Documents in `docs/`, decisions in decisions.md | **Done** (decisions approved 2026-11-15) |
 | 1. Simulation core (headless) | Vertical slice "drill → conveyor → furnace → core", save/load, replay, B1/B2-10k | **Done** 2026-11-16 |
 | 2. First graphical client | Window, camera, rendering of tiles and buildings, placing blocks with the mouse | **Done (v0)** 2026-11-16 — see limitations below |
-| 3. Production, logistics, power | Chains of 3+ links, splitters/sorters/bridges, power networks, fluids | **Almost done** (2026-11-17): economy, splitter, sorter, bridge, depot, overflow gate, batteries, burner, inspector, fluids, heat network; remaining — local network rebuilds |
+| 3. Production, logistics, power | Chains of 3+ links, splitters/sorters/bridges, power networks, fluids | **Done** (2026-11-20): economy, splitter, sorter, bridge, depot, overflow gate, batteries, burner, inspector, fluids, heat network, local power network rebuilds |
 | 4. Units and combat | Flow fields, movement, turrets, projectiles, damage, waves — the first playable match | **Done (v0)** 2026-11-17: two enemy types (four in v0.4), flow field, health and destruction, turret, wall, waves, defeat, B5 |
 | 5. Content and map format | Map editor/generator, full content set v0.1, schematics | **In progress** (2026-11-17): map generator with guarantees, new game screen (size, difficulty, seed), schematics (copy, rotate, paste, `.fschem` file); content v0.4: burner, depot, arc tower, ranged and armored enemies; wave composition in data (S5-02); waves reacting to the base's noise (D-02); map editor and the `.fmap` file (2026-11-20); missing: campaign |
 | 6. Multiplayer | Dedicated server, client, synchronization, B7 | Not started |
@@ -65,7 +65,7 @@ See `docs/en/performance-design.md`, tasks P-01…P-10.
 | S2-02 (**done** except interpolation) | `ferrustry-client`: winit loop, interpolation, camera (pan/zoom), placing/removing with the mouse | S2-01, S1-04 |
 | S2-03 (**partial**: HUD, building panel, brand palette; brand fonts and menus — no) | UI layer (decision D-07), menus, palette and fonts per the brand guidelines | S2-02 |
 | S3-01 (**done** 2026-11-20: splitter, sorter, overflow gate, bridge, depot) | Splitter, sorter, overflow, bridge, storage | S1-06 |
-| S3-02 (**partial**: batteries, burner, diagnostics in the inspector; local network rebuild — no) | Power: batteries, several generator types, network diagnostics in the UI | S1-07 |
+| S3-02 (**done** 2026-11-20: batteries, burner, diagnostics in the inspector, local network rebuild) | Power: batteries, several generator types, network diagnostics in the UI | S1-07 |
 | S3-05 (**done**) | Economy: building costs from cores, refund on removal, starting stock | S1-08 |
 | S3-03 (**done**: water, pipes, condenser, cooling tower; compartment model) | Fluids (D-09) | S1-07 |
 | S3-04 (**done**: forge heat output, slowdown above 70%, heat pipes, radiator, cooling tower, heat engine) | Heat as a network (if D-02 is approved) | S3-03 |

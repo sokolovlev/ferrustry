@@ -197,7 +197,7 @@ zstd compression) for maps, saves and schematics; network packets are `postcard`
 Deviations from the plan worth knowing:
 - The tick order is currently: power → drills → crafters → conveyors (no units, fluids or
   combat yet). Commands are applied before the systems, in the order given.
-- The power network is rebuilt entirely on any change of power buildings (local rebuild is S3-02).
+- The power network is rebuilt locally (S3-02, section 25).
 - Building is instant and free (sandbox mode); build cost and time come in stage 3.
 - An item leaving a segment into a segment with a higher index may move once more in the same
   tick. The behaviour is deterministic; if it becomes noticeable, we will add a two-phase update.
@@ -364,3 +364,14 @@ The report is Markdown in two languages; snapshots live in `docs/balance/` with 
 | Editor (client, `game/editor.rs`) | Edits an ordinary world in sandbox mode (free building, the simulation is stopped). Brushes of 1–9 tiles: floor, ore, "clear ore", erasing with RMB; the core, spawn points. Terrain under buildings is left alone so the map always stays valid. PLAY checks: there is a core; with waves on there are spawn points, each with a path to a core |
 | Map list and history (`game/maps.rs`) | The MAPS screen reads `maps/*.fmap` through requests to the environment (`app.rs`); the UI itself has no file system access and is covered by tests. A new map is saved to the first free `maps/map-NNN.fmap`, an opened one to its own file. An undo step is a `MapDef` snapshot (~6 bytes per tile: a large map takes 375 KB, a snapshot 0.3 ms, a restore 3.7 ms) rather than a copy of the world (~30 bytes per tile); depth 64 |
 | Headless | `map-gen` writes a generated map, `map-check` reads one, starts a game and runs N ticks; in CI on all three OSes |
+
+## 25. Local power network rebuilds (S3-02, 2026-11-20)
+
+| What | How |
+|---|---|
+| Neighbours | Touching sides (the perimeter) and node links: a square of tiles around the centre within node range, each building counted once — in the tile holding its centre. Before, every node scanned all power buildings of the world (quadratic cost) |
+| Building | The building joins its neighbours' network; if there are several, a lock-step walk over each until only one is unfinished: it keeps its id, the rest are renumbered. Cost — the size of the smaller networks |
+| Removal | Lock-step walks from the former neighbours inside the network; walks that meet are merged. Finished pieces get new ids, the last one keeps the old id. Cost — the size of the pieces that split off |
+| Ids | Free ids are reused (`PowerState::free`); ids depend on the order of changes, the partition does not. `steady` (fuel-free output) moves with the buildings |
+| Checks | `World::validate` compares the partition with a full walk and recomputes `steady`; a test compares 4×300 ticks of random building/removal with a reference that rebuilds everything every tick (the state matches bit for bit after canonical numbering). The test catches disabled splitting and lost `steady` |
+| Cost | Building on B3-10k with 1682 nodes: 12.6 ms → 11 µs per tick; the power part of building on B3-100k: 2.2 ms → within noise (`examples/power_rebuild_cost.rs`) |

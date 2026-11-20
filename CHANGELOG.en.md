@@ -20,6 +20,11 @@ saves are incompatible between minor versions (the game reports a format version
   undo and redo (Z / Y, up to 64 steps); with unsaved changes, leaving the map takes a second press.
 
 ### Changed
+- **Power networks rebuild locally** (S3-02): building attaches to the neighbours' network, removal
+  recomputes only the pieces that split off. Building next to a grid of 1682 power nodes cost 12.6 ms per
+  tick (38% of the budget), now ~11 µs; on the 100k megabase the power part of building went from 2.2 ms to
+  within noise. Behaviour is unchanged (checked against a full rebuild). **Save format 8.0**: old saves
+  don't load.
 - **Balance by the report** (`docs/en/balance/2026-11-19-normal-tuned.md`): the base has to grow — by
   wave 5 it takes ~2 production cells, by wave 10 ~6, by 15 ~10, by 20 ~16 (was 1 / 2 / 3 / 5). Waves:
   crawlers +3 per wave (was +2), brutes +1 every wave (was every other). The gun turret costs 45 ingots

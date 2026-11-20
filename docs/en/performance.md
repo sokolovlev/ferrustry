@@ -357,3 +357,17 @@ The version from 16.11 (`70734c7`, v0.1.0) and the current one (`c558c20`, v0.7.
 
 Client (large 320×200 map): **280 FPS**, zoomed all the way out **230 FPS** (the floor is assembled on the CPU
 every frame, R-01). That is almost four times the 60 FPS target, so the GPU floor cache (R-01) is not urgent.
+
+### 2026-11-20 — local power network rebuilds (S3-02)
+
+`examples/power_rebuild_cost.rs`: a tick without building and a tick in which a wind turbine is placed/removed (VM, slower than the owner's PC).
+
+| Scenario | Before (full rebuild) | After |
+|---|---|---|
+| B3-10k + a grid of 1682 power nodes (one shared network) | 12,604 µs per tick with building (38% of the budget) | 31 µs (power ~11 µs) |
+| B3-100k (5004 networks, no nodes) | 2,514 µs, of which power ~2,170 | 591 µs; power ~15 µs — within noise |
+| B3-100k + a grid of 16,682 nodes | seconds per tick (quadratic cost) | 564 µs; power within noise |
+
+- The old rebuild: every node scanned all power buildings — a cost quadratic in their number.
+- The remaining ~230 µs on B3-100k is the cost of **any** building, even a wall (link caches reset by the
+  topology epoch, etc.) — a separate task; it is 0.7% of the tick budget and only in ticks with building.

@@ -384,7 +384,7 @@ fn power_node_links_distant_buildings() {
         .map(|(id, _)| w.power_net_of(id).cloned())
         .collect::<Vec<_>>();
     assert!(a.iter().all(|n| n.is_some()));
-    assert_eq!(w.power_nets().len(), 1, "node range 6 reaches both");
+    assert_eq!(w.live_power_nets(), 1, "node range 6 reaches both");
     w.apply(
         &reg,
         &Command::Remove {
@@ -393,7 +393,7 @@ fn power_node_links_distant_buildings() {
     )
     .unwrap();
     w.step(&reg);
-    assert_eq!(w.power_nets().len(), 2);
+    assert_eq!(w.live_power_nets(), 2);
 }
 
 #[test]

@@ -89,6 +89,25 @@ pub struct Building {
 }
 
 impl Building {
+    /// Только геометрия (для расчётов по месту постройки, которой уже нет).
+    pub(crate) fn shape(block: BlockId, origin: TilePos, size: u8) -> Self {
+        Self {
+            block,
+            origin,
+            size,
+            rot: Dir::Right,
+            tag: KindTag::Wall,
+            row: 0,
+            power_net: None,
+            health: 0,
+            heat_net: None,
+            fluid_net: None,
+            dump_cursor: 0,
+            dump_epoch: 0,
+            dump_links: Vec::new(),
+        }
+    }
+
     /// Текущая прочность.
     pub fn health(&self) -> u32 {
         self.health
