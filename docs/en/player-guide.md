@@ -29,6 +29,34 @@ The map is generated so the start is always fair: the core is in the centre with
 iron ore 11–20 tiles away, carbon 14–24 tiles away, and every enemy spawn point has a path to the core.
 You start with only the core and **300 iron ingots**.
 
+## Map editor
+
+**MAP EDITOR** in the main menu opens the editor on a map made by the generator with the new game
+settings (size, difficulty, seed). The tools are on the left, the actions at the bottom.
+
+| Tool | What it does |
+|---|---|
+| BASALT, ASH, SLAG POOL | Paints the floor with the brush. You can't build on slag and enemies can't walk on it; ore is removed from it |
+| IRON VEIN, CARBON SEAM | Lays ore (only on floor you can build on) |
+| CLEAR ORE | Removes ore |
+| ENEMY SPAWN | A click places an enemy spawn point (a red square), a click next to one removes it. Up to 16 points |
+| CORE | Places a core |
+| REMOVE BUILDING | Removes buildings under the brush |
+| BRUSH | Brush size: 1, 3, 5 or 9 tiles |
+| WAVES | Wave pace: off, easy, normal, hard |
+| START | Starting stock of iron ingots |
+
+LMB paints (you can drag), RMB erases ore and buildings. Floor and ore under buildings are not
+changed. The camera works as in the game (MMB, WASD, wheel).
+
+**GENERATE** makes a new random map, **BLANK** an empty map of the same size, **SAVE** / **LOAD**
+save to / load from `ferrustry-map.fmap`, **PLAY** starts a game on this map, **BACK** or **Esc**
+returns to the main menu. Before starting, the editor checks that there is a core and, with waves on,
+that there are spawn points and each of them has a path to a core.
+
+The map file stores floor, ore and buildings by name, so it survives game updates; if something on
+the map no longer exists in the game, loading tells you what.
+
 ## Controls
 
 | Key / mouse | Action |

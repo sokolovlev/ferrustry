@@ -8,8 +8,11 @@ use std::time::Instant;
 
 use ferrustry_content::ContentRegistry;
 use ferrustry_format::{
-    PlayOutcome, Recorder, play, read_replay, read_save, write_replay, write_save,
+    PlayOutcome, Recorder, play, read_map, read_replay, read_save, write_map, write_replay,
+    write_save,
 };
+use ferrustry_sim::map::MapDef;
+use ferrustry_sim::mapgen::{self, Difficulty, MapSettings, MapSize};
 use ferrustry_sim::{TICKS_PER_SECOND, World, scenario, state_hash};
 use serde::Serialize;
 
@@ -31,6 +34,9 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless replay FILE                      воспроизвести и сверить контрольные точки
   ferrustry-headless balance [--difficulty easy|normal|hard] [--waves N] [--lang ru|en] [--out FILE]
                                                     отчёт о балансе: кривая сложности
+  ferrustry-headless map-gen --out FILE [--size small|medium|large] [--difficulty ...] [--seed S]
+                                                    сгенерировать карту в .fmap
+  ferrustry-headless map-check FILE [--ticks N] [--seed S]  проверить карту, начать по ней партию
 ";
 
 struct Args {
@@ -160,12 +166,7 @@ fn real_main(args: &mut Args) -> Result<(), String> {
             }
         }
         "balance" => {
-            let difficulty = match args.value("--difficulty")?.as_deref() {
-                None | Some("normal") => ferrustry_sim::mapgen::Difficulty::Normal,
-                Some("easy") => ferrustry_sim::mapgen::Difficulty::Easy,
-                Some("hard") => ferrustry_sim::mapgen::Difficulty::Hard,
-                Some(other) => return Err(format!("unknown difficulty `{other}`")),
-            };
+            let difficulty = difficulty_arg(&mut args)?;
             let waves = u32::try_from(args.number("--waves", 20)?).map_err(|e| e.to_string())?;
             let en = match args.value("--lang")?.as_deref() {
                 None | Some("ru") => false,
@@ -179,6 +180,63 @@ fn real_main(args: &mut Args) -> Result<(), String> {
                 Some(path) => std::fs::write(&path, &text).map_err(|e| format!("{path}: {e}"))?,
                 None => print!("{text}"),
             }
+            Ok(())
+        }
+        "map-gen" => {
+            let out = args.value("--out")?.ok_or("map-gen requires --out FILE")?;
+            let size = match args.value("--size")?.as_deref() {
+                Some("small") => MapSize::Small,
+                None | Some("medium") => MapSize::Medium,
+                Some("large") => MapSize::Large,
+                Some(other) => return Err(format!("unknown map size `{other}`")),
+            };
+            let difficulty = difficulty_arg(&mut args)?;
+            let seed = args.number("--seed", 1)?;
+            args.finish()?;
+            let settings = MapSettings {
+                size,
+                difficulty,
+                seed,
+            };
+            let w = mapgen::generate(&reg, &settings).map_err(|e| e.to_string())?;
+            let bytes =
+                write_map(&MapDef::from_world(&w, &reg), &reg).map_err(|e| e.to_string())?;
+            std::fs::write(&out, &bytes).map_err(|e| format!("{out}: {e}"))?;
+            println!("wrote {} bytes to {out}", bytes.len());
+            Ok(())
+        }
+        "map-check" => {
+            let path = args.positional().ok_or("map-check requires FILE")?;
+            let ticks = args.number("--ticks", 0)?;
+            let seed = args.number("--seed", 1)?;
+            args.finish()?;
+            let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+            let def = read_map(&bytes, &reg).map_err(|e| e.to_string())?;
+            let mut w = def.instantiate(&reg, seed).map_err(|e| e.to_string())?;
+            let tps = u64::from(TICKS_PER_SECOND);
+            println!(
+                "map {}x{}, {} buildings, {} enemy spawns",
+                def.width,
+                def.height,
+                def.buildings.len(),
+                def.spawns.len()
+            );
+            if def.rules.waves {
+                println!(
+                    "waves: first after {} s, then every {} s",
+                    def.rules.first_wave / tps,
+                    def.rules.wave_spacing / tps
+                );
+            } else {
+                println!("waves: off");
+            }
+            for (item, n) in &def.starter {
+                println!("starter: {} {n}", reg.item(*item).name);
+            }
+            for _ in 0..ticks {
+                w.step(&reg);
+            }
+            summary(&w, &reg);
             Ok(())
         }
         "bench" => {
@@ -272,6 +330,15 @@ fn real_main(args: &mut Args) -> Result<(), String> {
         }
         other => Err(format!("unknown command `{other}`")),
     }
+}
+
+fn difficulty_arg(args: &mut Args) -> Result<Difficulty, String> {
+    Ok(match args.value("--difficulty")?.as_deref() {
+        None | Some("normal") => Difficulty::Normal,
+        Some("easy") => Difficulty::Easy,
+        Some("hard") => Difficulty::Hard,
+        Some(other) => return Err(format!("unknown difficulty `{other}`")),
+    })
 }
 
 fn summary(w: &World, reg: &ContentRegistry) {

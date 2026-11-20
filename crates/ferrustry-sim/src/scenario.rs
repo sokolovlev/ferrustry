@@ -6,7 +6,7 @@ use crate::geom::{Dir, TilePos};
 use crate::world::{Command, CommandError, World};
 
 /// Ошибка построения сценария.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ScenarioError {
     /// В контенте нет нужного определения.
     #[error("content is missing `{0}`")]

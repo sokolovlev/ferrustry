@@ -4,3 +4,5 @@ bench-*.json
 /bench-results
 *.freplay
 ferrustry-quicksave.fsave
+/ferrustry-map.fmap
+/ferrustry-schematic.fschem

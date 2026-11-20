@@ -353,3 +353,13 @@ editing data, with the result visible immediately.
 | Synthesis | The smallest number of cells that pays for the defence by the wave's arrival, given that their noise speeds the waves up |
 
 The report is Markdown in two languages; snapshots live in `docs/balance/` with a date. A full run of 20 waves takes ~2 s.
+
+## 24. Maps: `MapDef`, `.fmap` and the editor (S5-01, 2026-11-20)
+
+| Part | What it is |
+|---|---|
+| `ferrustry-sim::map::MapDef` | Everything needed to start a game, without its state: floor and ore per tile, starting buildings (with sorter filters), enemy spawn points, rules, starting stock. `from_world` takes a map from a world, `instantiate(reg, seed)` creates a game: buildings are placed for free, then the rules, the stock and the flow field. For a freshly created world the round trip "world → map → world" gives the same `state_hash` (tested on three seeds) |
+| `.fmap` (`ferrustry-format::map`) | Container v1, kind `Map`, one section. Content is stored by **name**; the floor and ore name tables hold only the names actually used, and tiles refer to them by index (u16). An unknown name is an error naming it. A medium 192×128 map is ~3 KB |
+| Versions | Maps and schematics don't depend on the simulation's internal structures, so they have their own format version (`MAP_VERSION`, `SCHEMATIC_VERSION` = 1.0) instead of the save version. Schematics written earlier with the save version (2.x–7.x) still load |
+| Editor (client, `game/editor.rs`) | Edits an ordinary world in sandbox mode (free building, the simulation is stopped). Brushes of 1–9 tiles: floor, ore, "clear ore", erasing with RMB; the core, spawn points. Terrain under buildings is left alone so the map always stays valid. PLAY checks: there is a core; with waves on there are spawn points, each with a path to a core |
+| Headless | `map-gen` writes a generated map, `map-check` reads one, starts a game and runs N ticks; in CI on all three OSes |

@@ -32,6 +32,11 @@ jobs:
       - run: cargo build --workspace --release
       - name: Determinism and save check
         run: cargo run --release -p ferrustry-headless -- save-check
+      - name: Map file check (.fmap)
+        shell: bash
+        run: |
+          cargo run --release -p ferrustry-headless -- map-gen --size small --seed 9 --out ci.fmap
+          cargo run --release -p ferrustry-headless -- map-check ci.fmap --ticks 300
       - name: Client screenshot (offscreen, lavapipe)
         if: runner.os == 'Linux'
         run: cargo run --release -p ferrustry-client -- --screenshot client.png --ticks 600 --zoom 40 --center 96,61

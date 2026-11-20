@@ -118,6 +118,14 @@ mod tests {
             .unwrap();
         let bytes = write_schematic(&s, &reg).unwrap();
         assert_eq!(read_schematic(&bytes, &reg).unwrap(), s);
+        assert_eq!(
+            u16::from_le_bytes([bytes[9], bytes[10]]),
+            crate::SCHEMATIC_VERSION.0
+        );
+        // схемы, записанные до разделения версий (с версией сохранения), читаются
+        let mut legacy = bytes.clone();
+        legacy[9..11].copy_from_slice(&7u16.to_le_bytes());
+        assert_eq!(read_schematic(&legacy, &reg).unwrap(), s);
         // другой порядок контента: ID меняются, схема — нет (по именам)
         let shuffled = ferrustry_content::BASE_CONTENT.replacen(
             "name: \"conveyor\"",

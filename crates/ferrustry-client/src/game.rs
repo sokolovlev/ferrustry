@@ -13,6 +13,9 @@ use ferrustry_sim::{Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePo
 
 use crate::ui::{Rect, Ui, text_width};
 
+mod editor;
+use editor::Editor;
+
 /// Кнопка мыши.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Button {
@@ -88,6 +91,8 @@ enum Drag {
     Remove(TilePos),
     Copy(TilePos),
     Pan([f32; 2]),
+    /// Кисть редактора карт (ЛКМ — рисовать, ПКМ — стирать).
+    Paint(bool),
 }
 
 /// Экран игры.
@@ -101,6 +106,8 @@ pub enum Screen {
     PauseMenu,
     /// Настройки новой игры.
     NewGame,
+    /// Редактор карт.
+    Editor,
 }
 
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
@@ -116,6 +123,10 @@ pub enum Request {
     SaveSchematic(Schematic),
     /// Загрузить схему из файла.
     LoadSchematic,
+    /// Сохранить карту в файл.
+    SaveMap(Box<ferrustry_sim::map::MapDef>),
+    /// Загрузить карту из файла.
+    LoadMap,
 }
 
 const QUICKSAVE: &str = "ferrustry-quicksave.fsave";
@@ -197,6 +208,7 @@ pub struct Game {
     paste: Option<Schematic>,
     map_size: MapSize,
     difficulty: Difficulty,
+    editor: Editor,
 }
 
 /// Скользящий счётчик частоты.
@@ -273,6 +285,7 @@ impl Game {
             paste: None,
             map_size: MapSize::Medium,
             difficulty: Difficulty::Normal,
+            editor: Editor::default(),
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -367,29 +380,32 @@ impl Game {
             seed: self.seed,
         };
         match mapgen::generate(&self.reg, &settings) {
-            Ok(w) => {
-                self.world = w;
-                self.camera.center = [
-                    self.world.grid().width() as f32 / 2.0,
-                    self.world.grid().height() as f32 / 2.0,
-                ];
-                self.camera.zoom = 32.0;
-                self.tool = None;
-                self.drag = None;
-                self.pending.clear();
-                self.paused = false;
-                self.last_wave = 0;
-                self.paste = None;
-                self.copy_mode = false;
-                self.inspected = None;
-                self.screen = Screen::Playing;
-                self.message = Some((
-                    "CHOOSE A BUILDING BELOW (1-6, TAB: CATEGORY), THEN CLICK THE MAP".into(),
-                    8.0,
-                ));
-            }
+            Ok(w) => self.begin_play(w),
             Err(e) => self.notify(format!("CANNOT CREATE MAP: {e}")),
         }
+    }
+
+    /// Начать партию на готовом мире (новая игра, карта из редактора).
+    fn begin_play(&mut self, w: World) {
+        self.world = w;
+        self.camera.center = [
+            self.world.grid().width() as f32 / 2.0,
+            self.world.grid().height() as f32 / 2.0,
+        ];
+        self.camera.zoom = 32.0;
+        self.tool = None;
+        self.drag = None;
+        self.pending.clear();
+        self.paused = false;
+        self.last_wave = 0;
+        self.paste = None;
+        self.copy_mode = false;
+        self.inspected = None;
+        self.screen = Screen::Playing;
+        self.message = Some((
+            "CHOOSE A BUILDING BELOW (1-6, TAB: CATEGORY), THEN CLICK THE MAP".into(),
+            8.0,
+        ));
     }
 
     /// Выбранная постройка.
@@ -420,8 +436,12 @@ impl Game {
                 }
                 self.cursor = p;
                 self.ui.mouse = p;
+                if let Some(Drag::Paint(erase)) = self.drag {
+                    self.editor_paint(erase);
+                }
             }
             Input::Key(k, down) => self.key(k, down),
+            _ if self.screen == Screen::Editor => self.editor_mouse(input),
             _ if self.screen != Screen::Playing => self.menu_mouse(input),
             Input::MouseDown(Button::Left) if self.ui.blocks(self.cursor) => {
                 self.ui.pressed_at = Some(self.cursor);
@@ -515,7 +535,7 @@ impl Game {
             _ => None,
         };
         if let Some(i) = idx {
-            self.pan_keys[i] = down && self.screen == Screen::Playing;
+            self.pan_keys[i] = down && matches!(self.screen, Screen::Playing | Screen::Editor);
             return;
         }
         if !down {
@@ -561,7 +581,10 @@ impl Game {
                 None => self.notify("COPY SOMETHING FIRST (C)"),
             },
             (Screen::Playing, Key::LoadSchematic) => self.requests.push(Request::LoadSchematic),
-            (Screen::NewGame, Key::Cancel) => self.screen = Screen::MainMenu,
+            (Screen::NewGame | Screen::Editor, Key::Cancel) => {
+                self.drag = None;
+                self.screen = Screen::MainMenu;
+            }
             (Screen::Playing, Key::Rotate) => {
                 self.rot = match self.rot {
                     Dir::Right => Dir::Down,
@@ -577,6 +600,7 @@ impl Game {
             }
             (Screen::Playing, Key::Help) => self.show_help = !self.show_help,
             (Screen::Playing | Screen::PauseMenu, Key::Save) => self.requests.push(Request::Save),
+            (Screen::Editor, _) => {}
             (_, Key::Load) => self.requests.push(Request::Load),
             (Screen::Playing, Key::Faster) => self.speed = (self.speed * 2).min(8),
             (Screen::Playing, Key::Slower) => self.speed = (self.speed / 2).max(1),
@@ -745,7 +769,7 @@ impl Game {
         let running = match self.screen {
             Screen::MainMenu | Screen::NewGame => true,
             Screen::Playing => !self.paused && self.world.outcome() == Outcome::Running,
-            Screen::PauseMenu => false,
+            Screen::PauseMenu | Screen::Editor => false,
         };
         if running {
             let step = 1.0 / f64::from(TICKS_PER_SECOND);
@@ -835,6 +859,9 @@ impl Game {
             &self.ghosts,
             &mut self.dirs,
         );
+        if self.screen == Screen::Editor {
+            self.editor_overlay(world_batch, atlas, table);
+        }
         if let Some(Drag::Copy(start)) = self.drag {
             let end = self.cursor_tile();
             let (x0, x1) = (start.x.min(end.x), start.x.max(end.x) + 1);
@@ -866,6 +893,7 @@ impl Game {
         match self.screen {
             Screen::MainMenu => self.main_menu(&mut ui, atlas, table, hud),
             Screen::NewGame => self.new_game_screen(&mut ui, atlas, table, hud),
+            Screen::Editor => self.editor_hud(&mut ui, atlas, table, hud),
             Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
             Screen::PauseMenu => {
                 self.play_hud(&mut ui, atlas, table, hud);
@@ -943,22 +971,25 @@ impl Game {
             rgba(palette::TITANIUM),
         );
 
-        let r = self.menu_rects(3, ty + 170.0 * u);
+        let r = self.menu_rects(4, ty + 170.0 * u);
         if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
             self.screen = Screen::NewGame;
+        }
+        if ui.button(hud, atlas, white, r[1], "MAP EDITOR", 3.0 * u, true) {
+            self.open_editor();
         }
         if ui.button(
             hud,
             atlas,
             white,
-            r[1],
+            r[2],
             "CONTINUE",
             3.0 * u,
             self.quicksave_exists,
         ) {
             self.requests.push(Request::Load);
         }
-        if ui.button(hud, atlas, white, r[2], "QUIT", 3.0 * u, true) {
+        if ui.button(hud, atlas, white, r[3], "QUIT", 3.0 * u, true) {
             self.requests.push(Request::Quit);
         }
         let ver = concat!("V", env!("CARGO_PKG_VERSION"), "  EARLY PROTOTYPE");
@@ -1885,6 +1916,31 @@ mod tests {
             .camera
             .world_to_screen([t.x as f32 + 0.5, t.y as f32 + 0.5]);
         g.handle(Input::CursorMoved(p));
+    }
+
+    #[test]
+    fn map_editor_from_the_main_menu_to_play() {
+        let (mut g, mut e) = (game(), env());
+        frame(&mut g, &mut e);
+        let editor = g.menu_rects(4, 720.0 * 0.16 + 170.0)[1];
+        click(&mut g, &mut e, center(editor));
+        assert_eq!(g.screen(), Screen::Editor);
+        // клик по инструменту выбирает его, а не рисует под панелью
+        let l = g.editor_layout();
+        let floor_before = g.world.grid().floor(TilePos::new(0, 0));
+        click(&mut g, &mut e, center(l.tools[0]));
+        assert_eq!(g.world.grid().floor(TilePos::new(0, 0)), floor_before);
+        // SAVE отдаёт карту наружу
+        click(&mut g, &mut e, center(l.actions[2]));
+        assert!(
+            g.take_requests()
+                .iter()
+                .any(|r| matches!(r, Request::SaveMap(_)))
+        );
+        // PLAY — партия по карте
+        click(&mut g, &mut e, center(l.actions[4]));
+        assert_eq!(g.screen(), Screen::Playing);
+        assert!(g.world.rules().waves);
     }
 
     fn playing() -> (Game, Env) {

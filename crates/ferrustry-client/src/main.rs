@@ -4,7 +4,7 @@
 //! ferrustry                          окно, демо-карта
 //! ferrustry --load FILE              окно, загрузить сохранение
 //! ferrustry --screenshot FILE.png    отрисовать кадр без окна (CI, отчёты)
-//!           [--size 1280x720] [--ticks N] [--zoom PX] [--center X,Y] [--menu]
+//!           [--size 1280x720] [--ticks N] [--zoom PX] [--center X,Y] [--menu | --editor]
 //! ferrustry --frames N               закрыться после N кадров (дымовой тест окна)
 //! ```
 
@@ -33,6 +33,7 @@ struct Opts {
     frames: Option<u64>,
     seed: u64,
     menu: bool,
+    editor: bool,
 }
 
 fn parse() -> Result<Opts, String> {
@@ -46,6 +47,7 @@ fn parse() -> Result<Opts, String> {
         frames: None,
         seed: 1,
         menu: false,
+        editor: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -74,9 +76,10 @@ fn parse() -> Result<Opts, String> {
             "--frames" => o.frames = Some(val()?.parse().map_err(|_| "bad --frames")?),
             "--seed" => o.seed = val()?.parse().map_err(|_| "bad --seed")?,
             "--menu" => o.menu = true,
+            "--editor" => o.editor = true,
             "-h" | "--help" => {
                 println!(
-                    "see `ferrustry` docs: --screenshot FILE --size WxH --ticks N --zoom PX --center X,Y --load FILE --frames N --seed S"
+                    "see `ferrustry` docs: --screenshot FILE --size WxH --ticks N --zoom PX --center X,Y --load FILE --frames N --seed S --menu --editor"
                 );
                 std::process::exit(0);
             }
@@ -114,7 +117,9 @@ fn run() -> Result<(), String> {
         None => scenario::demo_map(&reg, o.seed).map_err(|e| e.to_string())?,
     };
     let mut game = Game::new(reg, world, [o.size[0] as f32, o.size[1] as f32]);
-    if o.load.is_some() || (o.screenshot.is_some() && !o.menu) {
+    if o.editor {
+        game.open_editor();
+    } else if o.load.is_some() || (o.screenshot.is_some() && !o.menu) {
         game.start_playing();
     }
     if let Some(z) = o.zoom {

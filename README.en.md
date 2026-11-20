@@ -8,15 +8,18 @@ Ferrustry is an original open-source factory automation + base defense game
 in Rust: its own engine, a headless fixed-timestep simulation, a dedicated server
 and a focus on measurable performance of large bases.
 
-> Status: **v0.4, an early playable version.** Map generation, production, power, heat, combat with
-> waves of four enemy types, schematics, saves and replays. The balance is not tuned yet.
+> Status: **v0.7, an early playable version.** Map generation and a map editor, production, power,
+> heat, combat with waves of four enemy types, base noise, schematics, saves and replays. The balance
+> has had a first measured pass.
 > What changed: see the [changelog](CHANGELOG.en.md).
 
-![Main menu](docs/screenshots/2026-11-17-main-menu.png)
+![Main menu](docs/screenshots/2026-11-20-main-menu.png)
 
 ![Generated map](docs/screenshots/2026-11-17-generated-map.png)
 
 ![Defence: an arc tower discharging](docs/screenshots/2026-11-17-defense-arc-tower.png)
+
+![Map editor](docs/screenshots/2026-11-20-map-editor.png)
 
 ## Quick start
 
@@ -29,7 +32,7 @@ ingots; ore and carbon are nearby, and enemies arrive from the map edges in a fe
 
 First chain: a **bore** on ore → **conveyor** → **smelter** (two **wind turbines** next to it) → conveyor → **core**.
 Pick buildings on the bottom panel (click or **1–6**, **Tab** switches the tab), place them with a click,
-drag to build a line. **F1** in the game lists the keys.
+drag to build a line. **F1** in the game lists the keys. You can draw your own map in the **MAP EDITOR**.
 
 How production, power, heat, combat and schematics work: the **[player guide](docs/en/player-guide.md)**;
 every building and enemy number: the **[content reference](docs/en/content-reference.md)**.
@@ -49,8 +52,8 @@ cargo run --release -p ferrustry-headless -- run
 |---|---|
 | `ferrustry-content` | Content schema (RON), validation, registry, reference generation |
 | `ferrustry-sim` | Deterministic simulation: world, logistics, power, heat, combat, map generator, schematics |
-| `ferrustry-format` | Save, replay and schematic files |
-| `ferrustry-headless` | Scenario runs, benchmarks, replay, save checks |
+| `ferrustry-format` | Save, map, replay and schematic files |
+| `ferrustry-headless` | Scenario runs, benchmarks, replay, save and map checks, balance report |
 | `ferrustry-render` | 2D wgpu renderer: procedural atlas, instanced sprites, camera |
 | `ferrustry-client` | The game: window (winit), input, building, UI |
 

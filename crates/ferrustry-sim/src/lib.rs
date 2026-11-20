@@ -12,6 +12,7 @@ pub mod geom;
 pub mod grid;
 mod hash;
 mod logistics;
+pub mod map;
 pub mod mapgen;
 pub mod power;
 pub mod rng;

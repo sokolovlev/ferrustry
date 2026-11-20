@@ -215,6 +215,26 @@ impl App {
                 }
                 self.game.schematic_loaded(res.ok());
             }
+            Request::SaveMap(def) => {
+                let res = ferrustry_format::write_map(&def, &self.game.reg)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| std::fs::write(Game::map_path(), b).map_err(|e| e.to_string()));
+                if let Err(e) = &res {
+                    eprintln!("ferrustry: map save failed: {e}");
+                }
+                self.game.map_saved(res);
+            }
+            Request::LoadMap => {
+                let res = std::fs::read(Game::map_path())
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| {
+                        ferrustry_format::read_map(&b, &self.game.reg).map_err(|e| e.to_string())
+                    });
+                if let Err(e) = &res {
+                    eprintln!("ferrustry: map load failed: {e}");
+                }
+                self.game.map_loaded(res);
+            }
         }
     }
 }

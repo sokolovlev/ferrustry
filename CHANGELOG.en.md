@@ -10,6 +10,11 @@ saves are incompatible between minor versions (the game reports a format version
 ### Added
 - **Overflow gate** `overflow_gate`: items go straight while there is room ahead, the surplus
   alternates sideways. The LOGISTICS tab has 6 buildings (keys 1–6).
+- **Map editor** (MAP EDITOR in the main menu): floor, ore, cores, enemy spawn points, wave pace and
+  starting stock; brushes of 1–9 tiles; start from a generated map or a blank one; PLAY checks that
+  every spawn point has a path to a core.
+- **Map file `.fmap`** (format 1.0): content by name, survives game updates. A medium map is ~3 KB.
+  Headless has `map-gen` and `map-check`, checked in CI on all three OSes.
 
 ### Changed
 - **Balance by the report** (`docs/en/balance/2026-11-19-normal-tuned.md`): the base has to grow — by
@@ -17,6 +22,8 @@ saves are incompatible between minor versions (the game reports a format version
   crawlers +3 per wave (was +2), brutes +1 every wave (was every other). The gun turret costs 45 ingots
   (was 30), 1 ingot = 2 shots (was 4). Arc tower: range 7 (was 5), discharge 40 (was 30) — in later
   waves it is more efficient than guns.
+- Schematics (`.fschem`) have their own format version 1.0 instead of the save version: the next save
+  format change no longer makes old schematics unreadable. Schematics written earlier still load.
 
 ### Added
 - **Balance tool** `ferrustry-headless balance`: the difficulty curve from real runs — how many guns

@@ -13,9 +13,11 @@
 
 use std::io::Read;
 
+mod map;
 mod replay;
 mod schematic;
 
+pub use map::{read_map, write_map};
 pub use schematic::{read_schematic, write_schematic};
 
 pub use replay::{
@@ -29,6 +31,13 @@ use ferrustry_sim::World;
 pub const MAGIC: &[u8; 8] = b"FERRUSTR";
 /// Текущая версия формата.
 pub const VERSION: (u16, u16) = (7, 0);
+/// Версия формата карт (`.fmap`). Карта хранит контент по именам и не зависит от
+/// внутренних структур симуляции, поэтому версионируется отдельно от сохранений.
+pub const MAP_VERSION: (u16, u16) = (1, 0);
+/// Версия формата схем (`.fschem`), отдельная от сохранений по той же причине.
+/// Схемы, записанные до разделения версий (с версией сохранения 2.x–7.x), тоже читаются:
+/// их содержимое не менялось.
+pub const SCHEMATIC_VERSION: (u16, u16) = (1, 0);
 /// Предел размера распакованной секции (защита от «zip-бомб»).
 pub const MAX_SECTION: u64 = 512 * 1024 * 1024;
 
@@ -59,6 +68,15 @@ impl FileKind {
             4 => Self::Replay,
             _ => return None,
         })
+    }
+
+    /// Версия формата, которую пишет эта сборка для файлов этого вида.
+    pub fn version(self) -> (u16, u16) {
+        match self {
+            Self::Map => MAP_VERSION,
+            Self::Schematic => SCHEMATIC_VERSION,
+            Self::Save | Self::Replay => VERSION,
+        }
     }
 }
 
@@ -122,8 +140,9 @@ impl Writer {
         let mut buf = Vec::with_capacity(1024);
         buf.extend_from_slice(MAGIC);
         buf.push(kind as u8);
-        buf.extend_from_slice(&VERSION.0.to_le_bytes());
-        buf.extend_from_slice(&VERSION.1.to_le_bytes());
+        let (major, minor) = kind.version();
+        buf.extend_from_slice(&major.to_le_bytes());
+        buf.extend_from_slice(&minor.to_le_bytes());
         buf.extend_from_slice(&0u32.to_le_bytes());
         Self { buf }
     }
@@ -201,14 +220,15 @@ fn read_header(bytes: &[u8], expected: FileKind) -> Result<&[u8], FormatError> {
     let kind = bytes[8];
     let major = u16::from_le_bytes([bytes[9], bytes[10]]);
     let minor = u16::from_le_bytes([bytes[11], bytes[12]]);
-    if major != VERSION.0 {
-        return Err(FormatError::UnsupportedVersion(major, minor));
-    }
     if FileKind::from_u8(kind) != Some(expected) {
         return Err(FormatError::WrongKind {
             expected,
             found: kind,
         });
+    }
+    let legacy_schematic = expected == FileKind::Schematic && (2..=7).contains(&major);
+    if major != expected.version().0 && !legacy_schematic {
+        return Err(FormatError::UnsupportedVersion(major, minor));
     }
     Ok(&bytes[HEADER_LEN..])
 }
