@@ -1,0 +1,19 @@
+[package]
+name = "ferrustry-net"
+description = "Ferrustry multiplayer: protocol, command-relay sessions, transports"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ferrustry-content.workspace = true
+ferrustry-sim.workspace = true
+ferrustry-format.workspace = true
+serde.workspace = true
+postcard.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

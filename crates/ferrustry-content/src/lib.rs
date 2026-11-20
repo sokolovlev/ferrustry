@@ -1202,6 +1202,30 @@ impl ContentRegistry {
         &self.fluids[usize::from(id.0)]
     }
 
+    /// Отпечаток всего контента (имена **и** числа): у участников сетевой игры он обязан
+    /// совпадать, иначе одинаковые команды дадут разные миры. FNV-1a по отладочному
+    /// представлению упорядоченных определений (таблицы имён — производные и с
+    /// недетерминированным порядком обхода, поэтому не входят).
+    pub fn fingerprint(&self) -> u64 {
+        let text = format!(
+            "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+            self.floors,
+            self.items,
+            self.ores,
+            self.blocks,
+            self.units,
+            self.waves,
+            self.noise,
+            self.fluids
+        );
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in text.bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        h
+    }
+
     /// Поиск жидкости по имени.
     pub fn fluid_by_name(&self, name: &str) -> Option<FluidId> {
         self.fluid_names.get(name).copied()
@@ -1243,6 +1267,18 @@ pub struct NameTable {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fingerprint_is_stable_and_sees_numbers() {
+        let a = ContentRegistry::base().unwrap();
+        let b = ContentRegistry::base().unwrap();
+        assert_eq!(a.fingerprint(), b.fingerprint());
+        // одно изменённое число в данных — другой отпечаток
+        let changed = BASE_CONTENT.replacen("damage: 12, reload: 15", "damage: 13, reload: 15", 1);
+        assert_ne!(changed, BASE_CONTENT);
+        let c = ContentRegistry::from_ron(&changed).unwrap();
+        assert_ne!(a.fingerprint(), c.fingerprint());
+    }
 
     #[test]
     fn base_content_is_valid() {

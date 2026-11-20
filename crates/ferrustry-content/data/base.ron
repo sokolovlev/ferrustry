@@ -187,7 +187,7 @@
             cost: [("iron_ingot", 45)],
             size: 2,
             health: 400,
-            // 1 слиток = 4 выстрела по 12 урона; радиус 9 тайлов
+            // 1 слиток = 2 выстрела по 12 урона; радиус 9 тайлов
             kind: Turret(range: 9, damage: 12, reload: 15, ammo: "iron_ingot", shots_per_item: 2, projectile_speed: 96, buffer: 10),
         ),
         (

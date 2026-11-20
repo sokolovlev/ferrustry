@@ -53,6 +53,7 @@ cargo run --release -p ferrustry-headless -- run
 | `ferrustry-content` | Content schema (RON), validation, registry, reference generation |
 | `ferrustry-sim` | Deterministic simulation: world, logistics, power, heat, combat, map generator, schematics |
 | `ferrustry-format` | Save, map, replay and schematic files |
+| `ferrustry-net` | Multiplayer: protocol, command-relay server and client (stage 6) |
 | `ferrustry-headless` | Scenario runs, benchmarks, replay, save and map checks, balance report |
 | `ferrustry-render` | 2D wgpu renderer: procedural atlas, instanced sprites, camera |
 | `ferrustry-client` | The game: window (winit), input, building, UI |
@@ -69,7 +70,7 @@ For developers and content authors:
 - [Content format](docs/en/content-format.md) — how to add a building or an enemy
 - [Balance report](docs/en/balance/2026-11-19-normal-tuned.md) — the difficulty curve from real runs ([before tuning](docs/en/balance/2026-11-19-normal.md))
 - [Architecture](docs/en/architecture.md)
-- [Multiplayer: design](docs/en/network-design.md) — stage 6, awaiting approval
+- [Multiplayer: design](docs/en/network-design.md) — stage 6
 - [Genre analysis](docs/en/genre-analysis.md)
 - [Compatibility](docs/en/compatibility.md)
 - [Roadmap and backlog](docs/en/roadmap.md)

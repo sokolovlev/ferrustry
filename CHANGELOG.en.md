@@ -8,6 +8,9 @@ saves are incompatible between minor versions (the game reports a format version
 ## Unreleased
 
 ### Added
+- **Multiplayer foundation** (stage 6, D-18): the `ferrustry-net` crate — an authoritative server relays
+  player commands in per-tick frames, everyone simulates the world; joining a running game through a
+  snapshot, checksum checks, version and content fingerprint checks. No network transport yet (one process only).
 - **Overflow gate** `overflow_gate`: items go straight while there is room ahead, the surplus
   alternates sideways. The LOGISTICS tab has 6 buildings (keys 1–6).
 - **Map editor** (MAPS → NEW MAP in the main menu): floor, ore, cores, enemy spawn points, wave pace and

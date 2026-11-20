@@ -1,6 +1,6 @@
 # Multiplayer: design (stage 6)
 
-Status: **design awaiting approval** (2026-11-20). Decisions D-18…D-22 are in [decisions.md](decisions.md).
+Status: **design approved** (2026-11-20). Decisions D-18…D-22 are in [decisions.md](decisions.md).
 Every number below is measured (`examples/net_estimates.rs`, cloud VM; the owner's PC is faster), not
 promised.
 
@@ -85,3 +85,11 @@ thousands of ticks.
 | A slow client falls behind | The client simulates several ticks per frame (as with speed-up now); if it falls behind by more than N seconds — a warning and a rejoin |
 | A server hitch while taking a snapshot | Copy the world on the main thread, serialize and compress in the background |
 | An expensive checksum | Task S6-04: a fast hash (not through serialization) or checking parts of the world in turn |
+
+## 6. Implementation status
+
+| Task | Status |
+|---|---|
+| S6-01 protocol | **Done** (2026-11-20) without a chunked snapshot: `ferrustry-net` — messages `Hello`/`Command` and `Welcome`/`Reject`/`Frame`/`Checksum` (postcard), the protocol version, the simulation version and a **content fingerprint** (`ContentRegistry::fingerprint` — names and numbers: mods with different numbers won't join), id checks in commands, a message size limit, an in-memory channel |
+| S6-02 session | **Done** (2026-11-20): `Server` (joining, frames, checksums, dropping misbehaving clients), `Client` (snapshot, simulating by frames, checking). Test: a server and 3 clients over 2000 ticks with building and combat, the third joins a running game and catches up in batches — the state matches bit for bit for everyone; incompatible clients and a full server are rejected; tampering with a client's state is caught at the first check |
+| S6-03 — S6-05 | Ahead: a background chunked snapshot, a fast checksum and recovery, a network transport, a dedicated server, connecting from the game |

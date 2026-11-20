@@ -12,7 +12,7 @@ Every stage ends with a verifiable result. Task IDs are used in commits and issu
 | 3. Production, logistics, power | Chains of 3+ links, splitters/sorters/bridges, power networks, fluids | **Done** (2026-11-20): economy, splitter, sorter, bridge, depot, overflow gate, batteries, burner, inspector, fluids, heat network, local power network rebuilds |
 | 4. Units and combat | Flow fields, movement, turrets, projectiles, damage, waves — the first playable match | **Done (v0)** 2026-11-17: two enemy types (four in v0.4), flow field, health and destruction, turret, wall, waves, defeat, B5 |
 | 5. Content and map format | Map editor/generator, full content set v0.1, schematics | **In progress** (2026-11-17): map generator with guarantees, new game screen (size, difficulty, seed), schematics (copy, rotate, paste, `.fschem` file); content v0.4: burner, depot, arc tower, ranged and armored enemies; wave composition in data (S5-02); waves reacting to the base's noise (D-02); map editor and the `.fmap` file (2026-11-20); missing: campaign |
-| 6. Multiplayer | Dedicated server, client, synchronization, B7 | **Design** (2026-11-20): [network-design.md](network-design.md), decisions D-18…D-22 awaiting approval |
+| 6. Multiplayer | Dedicated server, client, synchronization, B7 | **Design** (2026-11-20): [network-design.md](network-design.md), decisions D-18…D-22 approved |
 | 7. Completeness | Campaign/progression, data mods, menus and UI per the brand guidelines, sound | Not started |
 | 8. Optimization and release | Profiling, builds for 3 OSes, installers, public release | Not started |
 
@@ -75,9 +75,9 @@ See `docs/en/performance-design.md`, tasks P-01…P-10.
 | S4-04 (**done**) | Enemy waves | S4-02, S4-03 |
 | S5-01 (**done** 2026-11-20: generator, schematics, `.fmap`, map editor) | Map generator, `.fmap` format, `.fschem` schematics | S1-09 |
 | S5-02 (**done** 2026-11-18) | Wave composition in content data | S4-04 |
-| S6-00 (**done** 2026-11-20: [design](network-design.md), measurements, decisions D-18…D-22 awaiting approval) | Multiplayer model | — |
-| S6-01 | `ferrustry-net`: protocol (version, handshake, command frames, chunked snapshot, checksums), an in-memory transport for tests | D-18 |
-| S6-02 | Session: the server orders commands by tick, clients simulate by frames; a "server + 3 clients, thousands of ticks, all hashes match" test | S6-01 |
+| S6-00 (**done** 2026-11-20: [design](network-design.md), measurements, decisions D-18…D-22 approved) | Multiplayer model | — |
+| S6-01 (**done** 2026-11-20, except the chunked snapshot) | `ferrustry-net`: protocol (version, handshake, command frames, chunked snapshot, checksums), an in-memory transport for tests | D-18 |
+| S6-02 (**done** 2026-11-20) | Session: the server orders commands by tick, clients simulate by frames; a "server + 3 clients, thousands of ticks, all hashes match" test | S6-01 |
 | S6-03 | Joining a running game: a background snapshot, catching up through frames (D-21) | S6-02 |
 | S6-04 | A fast state checksum (not through serialization) and recovery on a mismatch (D-20) | S6-02 |
 | S6-05 | renet transport (D-08), `ferrustry-server` (headless, config), connecting from the client, B7 | S6-02 |

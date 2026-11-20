@@ -53,6 +53,7 @@ cargo run --release -p ferrustry-headless -- run
 | `ferrustry-content` | Схема контента (RON), валидация, реестр, генерация справочника |
 | `ferrustry-sim` | Детерминированная симуляция: мир, логистика, энергия, тепло, бой, генератор карт, схемы |
 | `ferrustry-format` | Файлы сохранений, карт, replay и схем |
+| `ferrustry-net` | Сетевая игра: протокол, сервер и клиент с рассылкой команд (этап 6) |
 | `ferrustry-headless` | Прогон сценариев, бенчмарки, replay, проверка сохранений и карт, отчёт о балансе |
 | `ferrustry-render` | 2D-рендерер на wgpu: процедурный атлас, instanced-спрайты, камера |
 | `ferrustry-client` | Игра: окно (winit), ввод, стройка, интерфейс |
@@ -69,7 +70,7 @@ cargo run --release -p ferrustry-headless -- run
 - [Формат контента](docs/content-format.md) — как добавить постройку или врага
 - [Отчёт о балансе](docs/balance/2026-11-19-normal-tuned.md) — кривая сложности из прогонов ([до настройки](docs/balance/2026-11-19-normal.md))
 - [Архитектура](docs/architecture.md)
-- [Сетевая игра: проект](docs/network-design.md) — этап 6, на согласовании
+- [Сетевая игра: проект](docs/network-design.md) — этап 6
 - [Анализ жанра](docs/genre-analysis.md)
 - [Совместимость](docs/compatibility.md)
 - [Roadmap и backlog](docs/roadmap.md)

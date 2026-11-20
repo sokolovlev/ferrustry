@@ -631,6 +631,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrustry-net"
+version = "0.7.0"
+dependencies = [
+ "ferrustry-content",
+ "ferrustry-format",
+ "ferrustry-sim",
+ "postcard",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ferrustry-render"
 version = "0.7.0"
 dependencies = [
