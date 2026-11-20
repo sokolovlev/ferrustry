@@ -1,0 +1,6 @@
+commit: c558c20 (archive, git not available on the machine)
+rustc: rustc 1.100.0 (0ef1bc386 2026-11-09)
+os: Windows 11 Pro (10.0.26200)
+cpu: 12th Gen Intel(R) Core(TM) i5-12400F cores=6 threads=12 maxMHz=2500
+L2KB: 7680 L3KB: 18432
+ramGB: 15.8

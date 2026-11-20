@@ -1,0 +1,1005 @@
+{
+  "measured_ticks": 3000,
+  "results": [
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 0.031166666666666284,
+      "median_p99_us": 0.1,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 0,
+          "commit": "unknown",
+          "conveyor_segments": 0,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 0,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b1",
+          "setup_ms": 1.3658,
+          "state_hash": "f28bf9962a941a3b",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 7.700000000000001,
+            "mean_us": 0.031166666666666284,
+            "over_budget": 0,
+            "p50_us": 0.0,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 0,
+          "commit": "unknown",
+          "conveyor_segments": 0,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 0,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b1",
+          "setup_ms": 1.6739000000000002,
+          "state_hash": "f28bf9962a941a3b",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 117.3,
+            "mean_us": 0.07049999999999923,
+            "over_budget": 0,
+            "p50_us": 0.0,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 0,
+          "commit": "unknown",
+          "conveyor_segments": 0,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 0,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b1",
+          "setup_ms": 1.7104,
+          "state_hash": "f28bf9962a941a3b",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.1,
+            "mean_us": 0.02733333333333321,
+            "over_budget": 0,
+            "p50_us": 0.0,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b1",
+      "size": 0
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 3.031899999999985,
+      "median_p99_us": 6.7,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 364,
+          "budget_us": 33333.333333333336,
+          "buildings": 10192,
+          "commit": "unknown",
+          "conveyor_segments": 364,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 20748,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 33.372600000000006,
+          "state_hash": "931663020be75ea6",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 57.3,
+            "mean_us": 3.031899999999985,
+            "over_budget": 0,
+            "p50_us": 2.5,
+            "p99_us": 6.7
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 364,
+          "budget_us": 33333.333333333336,
+          "buildings": 10192,
+          "commit": "unknown",
+          "conveyor_segments": 364,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 20748,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 33.2598,
+          "state_hash": "931663020be75ea6",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 156.79999999999998,
+            "mean_us": 3.2441333333333904,
+            "over_budget": 0,
+            "p50_us": 2.6,
+            "p99_us": 9.0
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 364,
+          "budget_us": 33333.333333333336,
+          "buildings": 10192,
+          "commit": "unknown",
+          "conveyor_segments": 364,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 20748,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 32.4288,
+          "state_hash": "931663020be75ea6",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 9.2,
+            "mean_us": 3.019933333333397,
+            "over_budget": 0,
+            "p50_us": 2.6,
+            "p99_us": 5.6
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 32.574133333333364,
+      "median_p99_us": 92.7,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 3577,
+          "budget_us": 33333.333333333336,
+          "buildings": 100156,
+          "commit": "unknown",
+          "conveyor_segments": 3577,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 203889,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 325.2561,
+          "state_hash": "dfea56753cc9acbe",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 809.4000000000001,
+            "mean_us": 31.97583333333339,
+            "over_budget": 0,
+            "p50_us": 25.5,
+            "p99_us": 77.5
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 3577,
+          "budget_us": 33333.333333333336,
+          "buildings": 100156,
+          "commit": "unknown",
+          "conveyor_segments": 3577,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 203889,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 319.9303,
+          "state_hash": "dfea56753cc9acbe",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 506.99999999999994,
+            "mean_us": 36.03193333333324,
+            "over_budget": 0,
+            "p50_us": 27.6,
+            "p99_us": 96.7
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 3577,
+          "budget_us": 33333.333333333336,
+          "buildings": 100156,
+          "commit": "unknown",
+          "conveyor_segments": 3577,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 203889,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2",
+          "setup_ms": 325.3378,
+          "state_hash": "dfea56753cc9acbe",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 481.8,
+            "mean_us": 32.574133333333364,
+            "over_budget": 0,
+            "p50_us": 25.0,
+            "p99_us": 92.7
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2",
+      "size": 100000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 0.03249999999999958,
+      "median_p99_us": 0.1,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 10000,
+          "commit": "unknown",
+          "conveyor_segments": 400,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 40400,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 30.2147,
+          "state_hash": "4ad69d39f1ce5b17",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.1,
+            "mean_us": 0.035266666666666086,
+            "over_budget": 0,
+            "p50_us": 0.0,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 10000,
+          "commit": "unknown",
+          "conveyor_segments": 400,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 40400,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 29.2543,
+          "state_hash": "4ad69d39f1ce5b17",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.1,
+            "mean_us": 0.03216666666666627,
+            "over_budget": 0,
+            "p50_us": 0.0,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 10000,
+          "commit": "unknown",
+          "conveyor_segments": 400,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 40400,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 31.3852,
+          "state_hash": "4ad69d39f1ce5b17",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.1,
+            "mean_us": 0.03249999999999958,
+            "over_budget": 0,
+            "p50_us": 0.0,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-blocked",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 0.07589999999999711,
+      "median_p99_us": 0.1,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 100000,
+          "commit": "unknown",
+          "conveyor_segments": 4000,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 404000,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 301.9262,
+          "state_hash": "b4a1e09cb4e33753",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.1,
+            "mean_us": 0.0755666666666638,
+            "over_budget": 0,
+            "p50_us": 0.1,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 100000,
+          "commit": "unknown",
+          "conveyor_segments": 4000,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 404000,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 314.23679999999996,
+          "state_hash": "b4a1e09cb4e33753",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.2,
+            "mean_us": 0.07589999999999711,
+            "over_budget": 0,
+            "p50_us": 0.1,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 0,
+          "awake_segments": 0,
+          "budget_us": 33333.333333333336,
+          "buildings": 100000,
+          "commit": "unknown",
+          "conveyor_segments": 4000,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 0,
+          "items_on_conveyors": 404000,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-blocked",
+          "setup_ms": 296.8561,
+          "state_hash": "b4a1e09cb4e33753",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 0.1,
+            "mean_us": 0.07903333333333028,
+            "over_budget": 0,
+            "p50_us": 0.1,
+            "p99_us": 0.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-blocked",
+      "size": 100000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 13.56223333333333,
+      "median_p99_us": 53.2,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 340,
+          "awake_segments": 476,
+          "budget_us": 33333.333333333336,
+          "buildings": 11254,
+          "commit": "unknown",
+          "conveyor_segments": 1258,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 73304,
+          "items_on_conveyors": 32164,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 24.070500000000003,
+          "state_hash": "fe66c67591257f4d",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 174.9,
+            "mean_us": 15.818799999999936,
+            "over_budget": 0,
+            "p50_us": 8.0,
+            "p99_us": 64.7
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 340,
+          "awake_segments": 476,
+          "budget_us": 33333.333333333336,
+          "buildings": 11254,
+          "commit": "unknown",
+          "conveyor_segments": 1258,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 73304,
+          "items_on_conveyors": 32164,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 24.0134,
+          "state_hash": "fe66c67591257f4d",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 76.4,
+            "mean_us": 12.774266666666737,
+            "over_budget": 0,
+            "p50_us": 6.3999999999999995,
+            "p99_us": 47.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 340,
+          "awake_segments": 476,
+          "budget_us": 33333.333333333336,
+          "buildings": 11254,
+          "commit": "unknown",
+          "conveyor_segments": 1258,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 73304,
+          "items_on_conveyors": 32164,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 28.0704,
+          "state_hash": "fe66c67591257f4d",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 144.3,
+            "mean_us": 13.56223333333333,
+            "over_budget": 0,
+            "p50_us": 6.6000000000000005,
+            "p99_us": 53.2
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-comb",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 173.18476666666655,
+      "median_p99_us": 641.6,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 3370,
+          "awake_segments": 4718,
+          "budget_us": 33333.333333333336,
+          "buildings": 111547,
+          "commit": "unknown",
+          "conveyor_segments": 12469,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 726572,
+          "items_on_conveyors": 318802,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 240.0538,
+          "state_hash": "2c0ed539578515d8",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1426.6999999999998,
+            "mean_us": 178.82806666666627,
+            "over_budget": 0,
+            "p50_us": 103.0,
+            "p99_us": 693.4000000000001
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 3370,
+          "awake_segments": 4718,
+          "budget_us": 33333.333333333336,
+          "buildings": 111547,
+          "commit": "unknown",
+          "conveyor_segments": 12469,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 726572,
+          "items_on_conveyors": 318802,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 224.7295,
+          "state_hash": "2c0ed539578515d8",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 2519.2000000000003,
+            "mean_us": 170.7457666666666,
+            "over_budget": 0,
+            "p50_us": 100.2,
+            "p99_us": 582.7
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 3370,
+          "awake_segments": 4718,
+          "budget_us": 33333.333333333336,
+          "buildings": 111547,
+          "commit": "unknown",
+          "conveyor_segments": 12469,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 726572,
+          "items_on_conveyors": 318802,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b2-comb",
+          "setup_ms": 227.6349,
+          "state_hash": "2c0ed539578515d8",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 2242.8,
+            "mean_us": 173.18476666666655,
+            "over_budget": 0,
+            "p50_us": 99.0,
+            "p99_us": 641.6
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b2-comb",
+      "size": 100000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 25.121633333333328,
+      "median_p99_us": 56.4,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 840,
+          "awake_segments": 1050,
+          "budget_us": 33333.333333333336,
+          "buildings": 12642,
+          "commit": "unknown",
+          "conveyor_segments": 1134,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 85470,
+          "items_on_conveyors": 16590,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 22.3979,
+          "state_hash": "21de9ee373da27f5",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1363.2,
+            "mean_us": 25.121633333333328,
+            "over_budget": 0,
+            "p50_us": 21.9,
+            "p99_us": 58.0
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 840,
+          "awake_segments": 1050,
+          "budget_us": 33333.333333333336,
+          "buildings": 12642,
+          "commit": "unknown",
+          "conveyor_segments": 1134,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 85470,
+          "items_on_conveyors": 16590,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 26.2617,
+          "state_hash": "21de9ee373da27f5",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1768.9,
+            "mean_us": 25.655633333333316,
+            "over_budget": 0,
+            "p50_us": 22.3,
+            "p99_us": 56.4
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 840,
+          "awake_segments": 1050,
+          "budget_us": 33333.333333333336,
+          "buildings": 12642,
+          "commit": "unknown",
+          "conveyor_segments": 1134,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 85470,
+          "items_on_conveyors": 16590,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 19.5531,
+          "state_hash": "21de9ee373da27f5",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1243.9,
+            "mean_us": 25.087866666666688,
+            "over_budget": 0,
+            "p50_us": 23.1,
+            "p99_us": 44.1
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b3",
+      "size": 10000
+    },
+    {
+      "median_allocations_per_tick": 0.0,
+      "median_mean_us": 399.060333333334,
+      "median_p99_us": 795.3,
+      "runs": [
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 8340,
+          "awake_segments": 10425,
+          "budget_us": 33333.333333333336,
+          "buildings": 125517,
+          "commit": "unknown",
+          "conveyor_segments": 11259,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 848595,
+          "items_on_conveyors": 164715,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 197.8099,
+          "state_hash": "2d00bc534c237879",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 1954.5,
+            "mean_us": 399.060333333334,
+            "over_budget": 0,
+            "p50_us": 365.0,
+            "p99_us": 758.5
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 8340,
+          "awake_segments": 10425,
+          "budget_us": 33333.333333333336,
+          "buildings": 125517,
+          "commit": "unknown",
+          "conveyor_segments": 11259,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 848595,
+          "items_on_conveyors": 164715,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 212.7296,
+          "state_hash": "2d00bc534c237879",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 2326.6,
+            "mean_us": 412.64263333333406,
+            "over_budget": 0,
+            "p50_us": 370.0,
+            "p99_us": 850.1999999999999
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        },
+        {
+          "allocations_per_tick": 0.0,
+          "awake_drills": 8340,
+          "awake_segments": 10425,
+          "budget_us": 33333.333333333336,
+          "buildings": 125517,
+          "commit": "unknown",
+          "conveyor_segments": 11259,
+          "ferrustry_version": "0.1.0",
+          "items_in_cores": 848595,
+          "items_on_conveyors": 164715,
+          "machine": {
+            "arch": "x86_64",
+            "cpu": null,
+            "logical_cpus": 12,
+            "os": "windows"
+          },
+          "measured_ticks": 3000,
+          "peak_rss_kib": null,
+          "profile": "release",
+          "scenario": "b3",
+          "setup_ms": 201.9204,
+          "state_hash": "2d00bc534c237879",
+          "target_cpu": "avx2",
+          "tick": {
+            "max_us": 3950.000000000001,
+            "mean_us": 391.6582000000004,
+            "over_budget": 0,
+            "p50_us": 356.7,
+            "p99_us": 795.3
+          },
+          "tick_rate_hz": 30,
+          "warmup_ticks": 6000
+        }
+      ],
+      "scenario": "b3",
+      "size": 100000
+    }
+  ],
+  "warmup_ticks": 6000
+}

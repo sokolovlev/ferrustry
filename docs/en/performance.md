@@ -1,6 +1,6 @@
 # Performance
 
-Status: the methodology is defined; there are **measurements of B1–B3 and B5** on a cloud VM and on the owner's PC (section 6). The numbers in section 4 are targets, not results.
+Status: the methodology is defined; there are **measurements of B1–B3, B5 and B8** on a cloud VM and on two of the owner's PCs (section 6). The numbers in section 4 are targets, not results.
 
 ## 1. Principles
 
@@ -310,3 +310,29 @@ Cloud VM, medians of 5 alternating runs; state hash and behaviour unchanged.
 |---|---|---|---|
 | Segment record `repr(C, align(64))`, hot fields first (**rolled back**) | 392 → 519 µs | 206 → 226 µs | 21.9 → 22.0 µs |
 | Last tile read only when the link is recomputed (kept) | within noise | within noise | instructions −0.7% |
+
+### 2026-11-20 — the owner's second PC: "before/after" on the same hardware
+
+Intel Core i5-12400F (6C/12T, L2 1.25 MB/core, L3 18 MB), 16 GB, Windows 11, rustc 1.100.0, AVX2.
+The version from 16.11 (`70734c7`, v0.1.0) and the current one (`c558c20`, v0.7.0) were run on the same machine,
+`bench-suite.ps1`, median of 3 runs. Files: `docs/benchmarks/results/2026-11-20-pc2-*`.
+
+| Scenario | Size | 70734c7, µs | c558c20, µs | Change |
+|---|---|---|---|---|
+| B1 | 512² | 0.03 | 0.03 | — |
+| B2 loops | 10k / 100k | 3.0 / 32.6 | 3.0 / 34.3 | within noise (runs spread 32–36) |
+| B2-blocked | 10k / 100k | 0.03 / 0.08 | 0.03 / 0.09 | at the timer's resolution |
+| B2-comb | 10k / 100k | 13.6 / 173 | 11.1 / **128** | −18% / **−26%** |
+| B3 megabase | 10k / 100k | 25.1 / 399 | 20.4 / **277** | −19% / **−31%** |
+| B5 combat | 1000 enemies | — | 104 | the scenario didn't exist yet |
+| B8 combat + building | 1000 enemies | — | 117 | the scenario didn't exist yet |
+
+- B3 is the same world in both versions: 125,517 buildings, exactly 848,595 items reached the cores during the run.
+  The new version does more every tick (heat, fluids, noise, combat) and is still 31% faster.
+  The gain comes from P-04 (dense crafter and drill rows) and P-03 (a shared belt item pool).
+- B3-100k is **0.8% of the tick budget** (33.3 ms at 30 Hz); p99 is 0.8 ms.
+- No allocations in a steady tick (B5/B8: 0.03 / 0.26 per tick — waves and building).
+- Hardware: the same old version is 1.3–1.7× faster on the i5-12400F than on the i3-8350K (B3-100k 671 → 399 µs):
+  large scenarios are memory-bound, and a bigger cache helps more than clock speed.
+- Caveat: both versions came from archives without `.git`, so the result folders record the commit as `unknown`;
+  the runs were a few minutes apart, and the spread within each is up to 5%.
