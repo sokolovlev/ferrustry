@@ -336,3 +336,24 @@ The version from 16.11 (`70734c7`, v0.1.0) and the current one (`c558c20`, v0.7.
   large scenarios are memory-bound, and a bigger cache helps more than clock speed.
 - Caveat: both versions came from archives without `.git`, so the result folders record the commit as `unknown`;
   the runs were a few minutes apart, and the spread within each is up to 5%.
+
+### 2026-11-20 — the multithreading ceiling and the client on the i5-12400F
+
+`parallel_ceiling` (B3-100k split into K independent bases, each on its own thread, synchronized once per tick):
+
+| Threads | 1 | 2 | 4 | 6 | 8 | 12 |
+|---|---|---|---|---|---|---|
+| Tick of the whole base, µs | 270.0 | 156.6 | 105.5 | 81.3 | **77.0** | 95.8 |
+| Speed-up | 1.00× | 1.72× | 2.56× | 3.32× | **3.50×** | 2.82× |
+
+- On 6 physical cores the ceiling is **3.3×**; the cores' second threads (SMT) add a little more (3.5× at 8),
+  and at 12 threads it gets worse: the cores share cache and memory, and the once-per-tick synchronization waits
+  for the slowest thread. As on the i3-8350K (2.6× on 4 cores), memory sets the limit, not the core count.
+- `fork_join_cost` (a pool of 12 threads): 11.7 µs per call without a pause, **35.7 µs** after 100 µs of
+  sequential work, **60.3 µs** after 600 µs — the threads fall asleep, and waking them costs a third to a half
+  of a B3-100k tick phase. Fine-grained phase parallelism won't pay off here either.
+- Conclusion for D-17: multithreading by regions would give up to ~3.3× on this PC, but a single thread already
+  spends only 0.8% of the budget on the 100k megabase. The recommendation "A now, B at stage 6" stands.
+
+Client (large 320×200 map): **280 FPS**, zoomed all the way out **230 FPS** (the floor is assembled on the CPU
+every frame, R-01). That is almost four times the 60 FPS target, so the GPU floor cache (R-01) is not urgent.
