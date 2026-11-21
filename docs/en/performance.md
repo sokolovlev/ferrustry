@@ -410,3 +410,35 @@ at 30 Hz in real time, 15 s measured. Cloud VM, 4 cores; the bots share the CPU 
 - **32 players joining a megabase take 1.76 s**: the server writes a snapshot **for each** joining player (~47 ms)
   and stands still while writing. The fix is S6-03: one snapshot per tick for all joining players, written in the
   background.
+
+### 2026-11-21 — the cost of any building and the "cold" tick
+
+**Building.** On B3-100k a tick in which any building is placed or removed (even a wall) cost ~300 µs more than a
+normal one. Profile (callgrind, `World::tick` only): +0.95 M instructions per such tick, of which **0.5 M was
+clearing the "slot → drill row" table** (125k entries, ~500 KB): it was rebuilt on any topology change, although it
+only changes when drills are built or removed. Now the table is maintained in place (when a drill is removed the
+moved row is updated) and built in full once after a world is created or loaded.
+
+| B3-100k, a tick with a wall placed | Before | After |
+|---|---|---|
+| Extra instructions per tick (callgrind) | +0.95 M | **+0.37 M (−61%)** |
+| Extra time per tick (VM) | ~300 µs | ~100–120 µs |
+
+What remains is recomputing the buildings' dump caches (`dump`/`resolve_link`) after the topology epoch changes.
+Check: random building and removal of drills (with rows moving) mixed with walls, `validate` every tick and a
+bit-for-bit state match with a reference that rebuilds the table every tick; without updating the moved row the
+test fails on tick 2.
+
+**The "cold" tick.** B7 showed a megabase server tick of ~0.85 ms **even without commands**, versus 0.28 ms in
+the benchmark. The cause is the conditions, not the network: benchmarks run ticks back to back, while the server
+(and the game) ticks every 33 ms, and during the pause the world's data leaves the cache (on a VM the clock
+probably drops too). The same world without networking:
+
+| B3-100k | Tick |
+|---|---|
+| Ticks back to back (`build_cost --plain`) | 0.29–0.32 ms |
+| With a 33 ms pause between ticks (`build_cost --plain --paced`) | **0.74–0.79 ms** |
+
+Conclusion: for large bases in a real game, what matters is not only the tick's work but also how much memory it
+touches (data density, P-03/P-04, pays off twice here). Benchmark numbers are a lower bound. A measurement on the
+owner's PC will show how much of this is a VM property.

@@ -243,9 +243,10 @@ pub struct World {
     pub(crate) kills: u64,
     #[serde(skip)]
     pub(crate) unit_grid: crate::combat::Scratch<crate::combat::UnitGrid>,
-    /// «Ячейка арены → строка бура» с эпохой топологии, для которой построена (служебное).
+    /// «Ячейка арены → строка бура» (служебное): `.0` — таблица построена; дальше
+    /// поддерживается точечно при стройке и сносе буров (раньше пересобиралась при любой стройке).
     #[serde(skip)]
-    pub(crate) drill_rows: crate::combat::Scratch<(u64, Vec<u32>)>,
+    pub(crate) drill_rows: crate::combat::Scratch<(bool, Vec<u32>)>,
     /// Шум базы за прошлый тик (D-02): сумма шума работавших построек; ускоряет таймер волн.
     pub(crate) noise: u32,
     /// Шум, накопленный в текущем тике.
@@ -967,6 +968,9 @@ impl World {
         if let Some(b) = self.buildings.get_mut(id) {
             b.row = row;
         }
+        if tag == KindTag::Drill {
+            self.drill_rows_set(Arena::slot_index(id), row);
+        }
         if def.is_power() {
             self.power_attach(reg, id);
         }
@@ -1143,6 +1147,12 @@ impl World {
                 m
             }),
         };
+        if b.tag == KindTag::Drill {
+            self.drill_rows_set(Arena::slot_index(id), u32::MAX);
+            if let Some(Some(m)) = moved {
+                self.drill_rows_set(Arena::slot_index(m), b.row);
+            }
+        }
         if let Some(Some(moved)) = moved
             && let Some(mb) = self.buildings.get_mut(moved)
         {
@@ -1640,12 +1650,23 @@ impl World {
         }
     }
 
-    /// Таблица «ячейка арены → строка бура» (служебная, пересобирается при смене топологии):
-    /// тик бура не читает саму постройку (P-04).
-    fn drill_row_of_slot(&mut self, slot: usize) -> Option<usize> {
-        let epoch = self.topo_epoch;
+    /// Записать в таблицу «ячейка → строка бура» (если она уже построена).
+    fn drill_rows_set(&mut self, slot: usize, row: u32) {
         let map = &mut self.drill_rows.0;
-        if map.0 != epoch {
+        if !map.0 {
+            return; // построится целиком при первом обращении
+        }
+        if map.1.len() <= slot {
+            map.1.resize(slot + 1, u32::MAX);
+        }
+        map.1[slot] = row;
+    }
+
+    /// Таблица «ячейка арены → строка бура» (служебная): тик бура не читает саму постройку
+    /// (P-04). Строится один раз (после создания или загрузки мира), дальше — точечно.
+    fn drill_row_of_slot(&mut self, slot: usize) -> Option<usize> {
+        let map = &mut self.drill_rows.0;
+        if !map.0 {
             map.1.clear();
             map.1.resize(self.buildings.slot_count(), u32::MAX);
             for (r, owner) in self.drills.owners.iter().enumerate() {
@@ -1653,7 +1674,7 @@ impl World {
                     *v = r as u32;
                 }
             }
-            map.0 = epoch;
+            map.0 = true;
         }
         map.1
             .get(slot)
@@ -2314,7 +2335,19 @@ impl World {
         self.check_incoming(reg)?;
         // действующая таблица «ячейка → строка бура» обязана совпадать с таблицей буров
         let map = &self.drill_rows.0;
-        if map.0 == self.topo_epoch {
+        if map.0 {
+            for d in &self.drills.owners {
+                if map
+                    .1
+                    .get(Arena::slot_index(*d))
+                    .is_none_or(|&r| r == u32::MAX)
+                {
+                    return Err(format!(
+                        "drill row table misses slot {}",
+                        Arena::slot_index(*d)
+                    ));
+                }
+            }
             for (slot, &r) in map.1.iter().enumerate() {
                 let ok = if r == u32::MAX {
                     self.buildings
@@ -2675,6 +2708,82 @@ mod tests {
     use super::{Command, Link, World};
     use crate::geom::{Dir, TilePos};
     use crate::scenario::{self, BaseIds};
+
+    /// Таблица «ячейка → строка бура» поддерживается точечно: случайная стройка и снос буров
+    /// (с перестановкой строк при сносе) вперемешку с другими постройками — таблица всегда
+    /// верна, а поведение совпадает с эталоном, пересобирающим её каждый тик.
+    #[test]
+    fn drill_row_table_is_kept_in_place() {
+        let reg = ContentRegistry::base().unwrap();
+        let ids = BaseIds::resolve(&reg).unwrap();
+        let wall = reg.block_by_name("iron_wall").unwrap();
+        let mut a = World::new(&reg, 48, 48, ids.basalt, 3);
+        for y in 0..48 {
+            for x in 0..48 {
+                if (x / 4 + y / 4) % 2 == 0 {
+                    a.set_ore(TilePos::new(x, y), Some(ids.iron_vein));
+                }
+            }
+        }
+        let mut b = a.clone();
+        let mut rng = crate::rng::Rng::new(11);
+        let (mut placed, mut removed) = (0, 0);
+        for tick in 0..400 {
+            let mut cmds = Vec::new();
+            for _ in 0..3 {
+                let p = TilePos::new(rng.below(46) as i32, rng.below(46) as i32);
+                let existing: Vec<TilePos> = a
+                    .buildings()
+                    .iter()
+                    .filter(|(_, bl)| bl.tag == crate::buildings::KindTag::Drill)
+                    .map(|(_, bl)| bl.origin)
+                    .collect();
+                match rng.below(5) {
+                    0 | 1 if !existing.is_empty() => {
+                        let at = existing[rng.below(existing.len() as u32) as usize];
+                        cmds.push(Command::Remove { at });
+                    }
+                    2 => cmds.push(Command::Place {
+                        block: wall,
+                        origin: p,
+                        rot: Dir::Right,
+                    }),
+                    _ => cmds.push(Command::Place {
+                        block: ids.bore,
+                        origin: p,
+                        rot: Dir::Right,
+                    }),
+                }
+            }
+            let ra = a.tick(&reg, &cmds);
+            b.drill_rows.0.0 = false; // эталон: таблица собирается заново каждый тик
+            let rb = b.tick(&reg, &cmds);
+            assert_eq!(ra, rb);
+            for (c, r) in cmds.iter().zip(&ra) {
+                if r.is_ok() {
+                    match c {
+                        Command::Remove { .. } => removed += 1,
+                        _ => placed += 1,
+                    }
+                }
+            }
+            a.validate(&reg)
+                .unwrap_or_else(|e| panic!("tick {tick}: {e}"));
+            assert_eq!(crate::state_hash(&a), crate::state_hash(&b), "tick {tick}");
+        }
+        assert!(
+            placed > 100 && removed > 100,
+            "placed {placed}, removed {removed}"
+        );
+        // дать оставшимся бурам поработать: добыча копится в буферах (выгружать некуда)
+        for _ in 0..600 {
+            a.step(&reg);
+            b.drill_rows.0.0 = false;
+            b.step(&reg);
+        }
+        assert_eq!(crate::state_hash(&a), crate::state_hash(&b));
+        assert!(a.drills.rows.iter().any(|r| r.buffer > 0), "drills worked");
+    }
 
     /// `validate` ловит устаревшую кэшированную связь на выходе ленты.
     #[test]

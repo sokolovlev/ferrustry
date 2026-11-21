@@ -32,6 +32,8 @@ saves are incompatible between minor versions (the game reports a format version
   undo and redo (Z / Y, up to 64 steps); with unsaved changes, leaving the map takes a second press.
 
 ### Changed
+- **Any building on a large base is cheaper**: a megabase tick in which a building is placed or removed does
+  61% less extra work (the drill row table is updated in place instead of rebuilt).
 - **Power networks rebuild locally** (S3-02): building attaches to the neighbours' network, removal
   recomputes only the pieces that split off. Building next to a grid of 1682 power nodes cost 12.6 ms per
   tick (38% of the budget), now ~11 µs; on the 100k megabase the power part of building went from 2.2 ms to
