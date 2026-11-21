@@ -25,6 +25,8 @@ pub struct NetBenchReport {
     commands_per_client_per_sec: u32,
     /// Время от подключения до получения снимка у последнего бота.
     join_all_ms: f64,
+    /// Самый длинный кадр сервера, пока игроки входили (снимки): сколько стоит партия.
+    join_max_frame_us: f64,
     snapshot_bytes: usize,
     /// Тик мира без сети (тот же мир, до запуска сервера).
     plain_tick_mean_us: f64,
@@ -135,6 +137,7 @@ pub fn run(
     let mut ticks = 0u64;
     let mut commands = 0u64;
     let mut measuring_since = None;
+    let mut join_max_frame = 0.0f64;
     loop {
         if start.elapsed() > Duration::from_secs_f64(seconds + 60.0) {
             return Err("B7 timed out (bots did not join)".into());
@@ -188,6 +191,9 @@ pub fn run(
             let tick = t.elapsed();
             hub.flush();
             let frame = f.elapsed();
+            if measuring_since.is_none() {
+                join_max_frame = join_max_frame.max(frame.as_secs_f64() * 1e6);
+            }
             next += step;
             // команды ботов: в среднем `rate` в секунду на бота (уйдут со следующей отправкой)
             for b in bots.iter_mut().filter(|b| b.joined) {
@@ -240,6 +246,7 @@ pub fn run(
         seconds,
         commands_per_client_per_sec: rate,
         join_all_ms: join_all_ms.unwrap_or(0.0),
+        join_max_frame_us: join_max_frame,
         snapshot_bytes,
         plain_tick_mean_us: plain_tick,
         server_frame_mean_us: frame_mean,

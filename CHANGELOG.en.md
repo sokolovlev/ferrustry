@@ -32,6 +32,8 @@ saves are incompatible between minor versions (the game reports a format version
   undo and redo (Z / Y, up to 64 steps); with unsaved changes, leaving the map takes a second press.
 
 ### Changed
+- **Joining a multiplayer game doesn't stop the server** (S6-03): one snapshot for all joining players,
+  written in the background. 32 players joining a megabase: the longest tick delay is 59 ms instead of ~1 s.
 - **Any building on a large base is cheaper**: a megabase tick in which a building is placed or removed does
   61% less extra work (the drill row table is updated in place instead of rebuilt).
 - **Power networks rebuild locally** (S3-02): building attaches to the neighbours' network, removal

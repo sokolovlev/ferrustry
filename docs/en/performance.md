@@ -467,3 +467,18 @@ The owner's PC — the same as on 2026-11-20: Intel Core i5-12400F, 16 GB, Windo
   frame is 4.6 ms (14%).
 - Traffic is the same as on the VM: it doesn't depend on the hardware.
 - 32 players joining take 1.9 s, as on the VM: a snapshot per joining player (S6-03).
+
+### 2026-11-22 — S6-03: joining without stopping the server
+
+`net-bench` now also measures the longest server frame while players join (`join_max_frame_us`). Comparison on one
+VM, the B3-100k megabase, the server before and after the change (binaries from the same build):
+
+| Players joining | Longest frame: before → after | All joined: before → after |
+|---|---|---|
+| 8 | 244 → **13 ms** | 0.66 → 0.73 s |
+| 32 | 988 → **59 ms** | 1.38 → 0.77 s |
+
+- Before, the server wrote a snapshot (~47 ms) **for each** joining player and stood still; now there is one
+  snapshot per batch, in the background.
+- The rest (13–59 ms) is copying the world (~11 ms on the VM) and handing a copy of the snapshot to each player's
+  renet send queue; a shared snapshot buffer instead of copies is possible if needed.

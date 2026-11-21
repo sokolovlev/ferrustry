@@ -189,6 +189,7 @@ fn desync_is_detected_and_recovered_from_a_snapshot() {
     let reg = ContentRegistry::base().unwrap();
     let config = ServerConfig {
         checksum_every: 30,
+        background_snapshots: false,
         ..Default::default()
     };
     let mut server: Server<MemLink> = Server::new(world(&reg), config);
@@ -270,7 +271,11 @@ fn misbehaving_clients_are_dropped() {
 #[test]
 fn each_player_learns_the_results_of_their_own_commands() {
     let reg = ContentRegistry::base().unwrap();
-    let mut server: Server<MemLink> = Server::new(world(&reg), ServerConfig::default());
+    let config = ServerConfig {
+        background_snapshots: false,
+        ..Default::default()
+    };
+    let mut server: Server<MemLink> = Server::new(world(&reg), config);
     let mut clients = Vec::new();
     for name in ["a", "b"] {
         let (s, c) = mem_pair();
@@ -322,4 +327,77 @@ fn each_player_learns_the_results_of_their_own_commands() {
         results[1],
         vec![Err(ferrustry_sim::CommandError::Occupied), Ok(())]
     );
+}
+
+#[test]
+fn joins_share_one_background_snapshot_and_the_server_keeps_ticking() {
+    let reg = ContentRegistry::base().unwrap();
+    let config = ServerConfig {
+        checksum_every: 30,
+        ..Default::default()
+    };
+    // мегабаза: снимок пишется заметное время — тики идут, пока он в пути
+    let world = ferrustry_sim::scenario::bench_megabase(&reg, 20_000).unwrap();
+    let mut server: Server<MemLink> = Server::new(world, config);
+    let mut clients: Vec<(Client<MemLink>, Option<World>)> = Vec::new();
+    let connect = |server: &mut Server<MemLink>, clients: &mut Vec<_>, name: &str| {
+        let (s, c) = mem_pair();
+        server.accept(s);
+        clients.push((Client::connect(c, &reg, name).unwrap(), None::<World>));
+    };
+    for i in 0..5 {
+        connect(&mut server, &mut clients, &format!("p{i}"));
+    }
+    server.poll(&reg);
+    assert_eq!(server.snapshots(), 1, "one snapshot for all five");
+    let start_tick = server.world().tick_count();
+    let mut late_joined = false;
+    let mut tick_at_first_welcome = None;
+    for step in 0..400 {
+        server.poll(&reg);
+        server.tick(&reg);
+        // шестой входит, пока первый снимок ещё может быть в пути — следующая партия
+        if step == 1 && !late_joined {
+            connect(&mut server, &mut clients, "late");
+            late_joined = true;
+        }
+        for (c, w) in &mut clients {
+            for e in c.poll(&reg) {
+                match e {
+                    ClientEvent::Joined(_, snap) => {
+                        tick_at_first_welcome.get_or_insert(server.world().tick_count());
+                        *w = Some(*snap);
+                    }
+                    other => panic!("{other:?}"),
+                }
+            }
+            if let Some(w) = w {
+                let (_, ev) = c.advance(&reg, w, usize::MAX);
+                assert!(
+                    ev.iter().all(|e| matches!(e, ClientEvent::Results(_))),
+                    "{ev:?}"
+                );
+            }
+        }
+        if clients.iter().all(|(_, w)| w.is_some()) && step > 100 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(
+        server.snapshots() <= 2,
+        "at most one more batch for the late player"
+    );
+    assert!(
+        tick_at_first_welcome.is_some_and(|t| t >= start_tick),
+        "the server kept ticking while the snapshot was written"
+    );
+    let h = state_hash(server.world());
+    for (i, (c, w)) in clients.iter_mut().enumerate() {
+        let w = w.as_mut().expect("joined");
+        let (_, ev) = c.advance(&reg, w, usize::MAX);
+        assert!(ev.iter().all(|e| matches!(e, ClientEvent::Results(_))));
+        assert_eq!(w.tick_count(), server.world().tick_count(), "client {i}");
+        assert_eq!(state_hash(w), h, "client {i}");
+    }
 }

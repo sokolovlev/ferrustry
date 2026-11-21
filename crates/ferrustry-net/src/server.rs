@@ -1,4 +1,10 @@
 //! Сервер партии: принимает игроков и команды, считает мир, рассылает кадры и контрольные суммы.
+//!
+//! Вход и восстановление (S6-03): все, кто ждёт снимок, собираются в одну партию; мир копируется
+//! один раз, а сериализация и сжатие идут в отдельном потоке — тик не ждёт. Пока снимок
+//! готовится, кадры для этих игроков копятся в очереди и уходят следом за снимком.
+
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use ferrustry_content::ContentRegistry;
 use ferrustry_sim::{Command, CommandError, SIM_VERSION, TICKS_PER_SECOND, World};
@@ -12,6 +18,8 @@ pub struct ServerConfig {
     pub checksum_every: u64,
     /// Наибольшее число игроков (D-22: 8).
     pub max_players: usize,
+    /// Писать снимки в отдельном потоке (иначе — сразу, в `poll`; для тестов).
+    pub background_snapshots: bool,
 }
 
 impl Default for ServerConfig {
@@ -19,6 +27,7 @@ impl Default for ServerConfig {
         Self {
             checksum_every: 5 * u64::from(TICKS_PER_SECOND),
             max_players: 8,
+            background_snapshots: true,
         }
     }
 }
@@ -43,10 +52,30 @@ pub enum ServerEvent {
     Resynced(PlayerId),
 }
 
+/// Зачем игроку снимок.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Want {
+    /// Вход (`Welcome`).
+    Join,
+    /// Восстановление после расхождения (`Snapshot`).
+    Resync,
+}
+
+/// Синхронизация игрока с миром.
+enum Sync {
+    /// Ждёт следующей партии снимка; кадры ему не нужны.
+    Waiting(Want),
+    /// В партии снимка: кадры с тика снимка копятся до его отправки.
+    Batched(Want, Vec<Vec<u8>>),
+    /// Получил снимок; кадры идут сразу.
+    Ready,
+}
+
 struct Peer<L> {
     link: L,
     player: Option<PlayerId>,
     alive: bool,
+    sync: Sync,
 }
 
 /// Сервер.
@@ -57,6 +86,10 @@ pub struct Server<L: Link> {
     config: ServerConfig,
     next_player: PlayerId,
     rolling: Rolling,
+    /// Снимок, который готовится в фоне.
+    snapshot: Option<Receiver<Result<Vec<u8>, String>>>,
+    /// Снимков сделано (для журнала и тестов).
+    snapshots: u64,
 }
 
 impl<L: Link> Server<L> {
@@ -69,6 +102,8 @@ impl<L: Link> Server<L> {
             rolling: Rolling::new(config.checksum_every),
             config,
             next_player: 1,
+            snapshot: None,
+            snapshots: 0,
         }
     }
 
@@ -83,7 +118,13 @@ impl<L: Link> Server<L> {
             link,
             player: None,
             alive: true,
+            sync: Sync::Ready,
         });
+    }
+
+    /// Сколько снимков сделано (одна партия — один снимок на всех входящих).
+    pub fn snapshots(&self) -> u64 {
+        self.snapshots
     }
 
     /// Игроков в партии.
@@ -137,34 +178,16 @@ impl<L: Link> Server<L> {
                             events.push(ServerEvent::Rejected(why));
                             continue;
                         }
-                        let snapshot = match ferrustry_format::write_save(&self.world, reg) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                events.push(ServerEvent::Rejected(format!("snapshot failed: {e}")));
-                                self.peers[i].alive = false;
-                                continue;
-                            }
-                        };
                         let player = self.next_player;
                         self.next_player = self.next_player.wrapping_add(1).max(1);
-                        let welcome = ServerMsg::Welcome {
-                            player,
-                            checksum_every: self.config.checksum_every.max(1),
-                            snapshot,
-                        };
-                        if self.peers[i].link.send(encode(&welcome)).is_err() {
-                            self.peers[i].alive = false;
-                            continue;
-                        }
                         self.peers[i].player = Some(player);
+                        self.peers[i].sync = Sync::Waiting(Want::Join);
                         events.push(ServerEvent::Joined { player, name });
                     }
                     Ok(ClientMsg::Resync) if self.peers[i].player.is_some() => {
-                        let sent = ferrustry_format::write_save(&self.world, reg)
-                            .map(|s| self.peers[i].link.send(encode(&ServerMsg::Snapshot(s))));
-                        match (sent, self.peers[i].player) {
-                            (Ok(Ok(())), Some(p)) => events.push(ServerEvent::Resynced(p)),
-                            _ => self.drop_peer(i, &mut events),
+                        // повторный запрос, пока снимок уже в пути, — лишний
+                        if matches!(self.peers[i].sync, Sync::Ready) {
+                            self.peers[i].sync = Sync::Waiting(Want::Resync);
                         }
                     }
                     Ok(ClientMsg::Command(cmd)) if self.peers[i].player.is_some() => {
@@ -192,7 +215,98 @@ impl<L: Link> Server<L> {
             }
         }
         self.peers.retain(|p| p.alive);
+        self.service_snapshots(reg, &mut events);
+        self.peers.retain(|p| p.alive);
         events
+    }
+
+    /// Отдать готовый снимок его партии и начать новую партию, если есть ждущие.
+    fn service_snapshots(&mut self, reg: &ContentRegistry, events: &mut Vec<ServerEvent>) {
+        if let Some(rx) = &self.snapshot {
+            let res = match rx.try_recv() {
+                Ok(r) => Some(r),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => Some(Err("snapshot thread failed".into())),
+            };
+            if let Some(res) = res {
+                self.snapshot = None;
+                self.deliver(res, events);
+            }
+        }
+        if self.snapshot.is_some()
+            || !self
+                .peers
+                .iter()
+                .any(|p| matches!(p.sync, Sync::Waiting(_)))
+        {
+            return;
+        }
+        // новая партия: снимок мира на текущем тике для всех ждущих
+        for p in &mut self.peers {
+            if let Sync::Waiting(w) = p.sync {
+                p.sync = Sync::Batched(w, Vec::new());
+            }
+        }
+        self.snapshots += 1;
+        if self.config.background_snapshots {
+            // копия — миллисекунды в этом потоке; сериализация и сжатие — в фоне
+            let (world, reg) = (self.world.clone(), reg.clone());
+            let (tx, rx) = channel();
+            let spawned = std::thread::Builder::new()
+                .name("ferrustry-snapshot".into())
+                .spawn(move || {
+                    let _ = tx.send(
+                        ferrustry_format::write_save(&world, &reg).map_err(|e| e.to_string()),
+                    );
+                });
+            match spawned {
+                Ok(_) => self.snapshot = Some(rx),
+                Err(e) => self.deliver(Err(e.to_string()), events),
+            }
+        } else {
+            let res = ferrustry_format::write_save(&self.world, reg).map_err(|e| e.to_string());
+            self.deliver(res, events);
+        }
+    }
+
+    /// Разослать снимок партии и следом — накопленные кадры.
+    fn deliver(&mut self, res: Result<Vec<u8>, String>, events: &mut Vec<ServerEvent>) {
+        let every = self.config.checksum_every.max(1);
+        for p in &mut self.peers {
+            // только участники этой партии; ждущие следующую остаются ждать
+            if !matches!(p.sync, Sync::Batched(..)) {
+                continue;
+            }
+            let Sync::Batched(want, queue) = std::mem::replace(&mut p.sync, Sync::Ready) else {
+                continue;
+            };
+            let (Ok(snapshot), Some(player)) = (&res, p.player) else {
+                p.alive = false;
+                if let Err(e) = &res {
+                    events.push(ServerEvent::Rejected(format!("snapshot failed: {e}")));
+                }
+                continue;
+            };
+            let first = match want {
+                Want::Join => ServerMsg::Welcome {
+                    player,
+                    checksum_every: every,
+                    snapshot: snapshot.clone(),
+                },
+                Want::Resync => {
+                    events.push(ServerEvent::Resynced(player));
+                    ServerMsg::Snapshot(snapshot.clone())
+                }
+            };
+            let mut ok = p.link.send(encode(&first)).is_ok();
+            for m in queue {
+                ok &= p.link.send(m).is_ok();
+            }
+            if !ok {
+                p.alive = false;
+                events.push(ServerEvent::Left(player));
+            }
+        }
     }
 
     fn drop_peer(&mut self, i: usize, events: &mut Vec<ServerEvent>) {
@@ -219,11 +333,23 @@ impl<L: Link> Server<L> {
             if !p.alive || p.player.is_none() {
                 continue;
             }
-            let mut ok = p.link.send(frame.clone()).is_ok();
-            if let Some(c) = &check {
-                ok &= p.link.send(c.clone()).is_ok();
+            match &mut p.sync {
+                Sync::Waiting(_) => {}
+                // снимок в пути: кадры — следом за ним, по порядку
+                Sync::Batched(_, queue) => {
+                    queue.push(frame.clone());
+                    if let Some(c) = &check {
+                        queue.push(c.clone());
+                    }
+                }
+                Sync::Ready => {
+                    let mut ok = p.link.send(frame.clone()).is_ok();
+                    if let Some(c) = &check {
+                        ok &= p.link.send(c.clone()).is_ok();
+                    }
+                    p.alive = ok;
+                }
             }
-            p.alive = ok;
         }
         results
     }
