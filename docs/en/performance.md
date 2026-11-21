@@ -445,7 +445,7 @@ owner's PC will show how much of this is a VM property.
 
 ### 2026-11-21 — the owner's PC: the "cold" tick, building, B7 (commit 053aad9)
 
-The owner's PC, Windows; the benchmark suite matches the i5-12400F measurement of 2026-11-20 within noise
+The owner's PC — the same as on 2026-11-20: Intel Core i5-12400F, 16 GB, Windows 11. The benchmark suite matches the previous measurement within noise
 (B3-100k 269 vs 277 µs, B2-comb-100k 126 vs 128 µs). B7 results —
 `docs/benchmarks/results/2026-11-21-pc-b7-*.json`.
 
