@@ -212,7 +212,9 @@ cargo run --release -p ferrustry-server -- --size medium --difficulty normal
 It listens on UDP port **27960** (`--port` for another). You can use your own map: `--map maps/map-001.fmap`,
 or continue a save: `--load ferrustry-quicksave.fsave`. While nobody is in the game, it stands still.
 
-Players connect by the server's address:
+Players connect with the **JOIN** button in the main menu: the server address (the port can be left out — 27960),
+**Tab** moves to the name field, **Enter** connects. The game remembers the last server and name
+(`ferrustry-server.txt`). The same from the command line:
 
 ```bash
 cargo run --release -p ferrustry-client -- --connect 192.168.1.10 --name Anna

@@ -40,7 +40,7 @@ every building and enemy number: the **[content reference](docs/en/content-refer
 Requirements: a CPU with AVX2 (x86_64) or Apple Silicon; a GPU with Vulkan, DirectX 12 or
 Metal. On Linux, `libvulkan1` and `libxkbcommon-x11-0` are needed.
 
-Multiplayer — a server and connecting to it (details in the [guide](docs/en/player-guide.md#multiplayer)):
+Multiplayer — a server, then **JOIN** in the game's main menu or connecting from the command line (details in the [guide](docs/en/player-guide.md#multiplayer)):
 
 ```bash
 cargo run --release -p ferrustry-server

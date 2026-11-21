@@ -136,6 +136,64 @@ impl Ui {
     }
 }
 
+impl Ui {
+    /// Поле ввода текста: подпись над полем, значение, курсор при фокусе. Возвращает `true`,
+    /// если по полю кликнули (взять фокус).
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_field(
+        &mut self,
+        hud: &mut Hud,
+        atlas: &Atlas,
+        white: SpriteId,
+        r: Rect,
+        label: &str,
+        value: &str,
+        focused: bool,
+        scale: f32,
+    ) -> bool {
+        self.block(r);
+        hud.text(
+            atlas,
+            r[0],
+            r[1] - 10.0 * scale,
+            scale,
+            label,
+            rgba(palette::TITANIUM),
+        );
+        let border = if focused {
+            rgba(palette::FORGE_ORANGE)
+        } else {
+            rgba(palette::SHADOW)
+        };
+        let b = (scale).max(2.0);
+        hud.rect(atlas, white, r, border);
+        hud.rect(
+            atlas,
+            white,
+            [r[0] + b, r[1] + b, r[2] - 2.0 * b, r[3] - 2.0 * b],
+            rgba([0x14, 0x16, 0x1E, 0xFF]),
+        );
+        let shown = if focused {
+            format!("{value}_")
+        } else {
+            value.to_owned()
+        };
+        // длинный текст — показываем конец (там курсор)
+        let max_chars = ((r[2] - 4.0 * b) / (6.0 * scale)).max(1.0) as usize;
+        let skip = shown.chars().count().saturating_sub(max_chars);
+        let tail: String = shown.chars().skip(skip).collect();
+        hud.text(
+            atlas,
+            r[0] + 3.0 * b,
+            r[1] + (r[3] - 7.0 * scale) / 2.0,
+            scale,
+            &tail,
+            rgba(palette::STEEL_WHITE),
+        );
+        self.clicked(r)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

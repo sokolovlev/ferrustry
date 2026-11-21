@@ -40,7 +40,7 @@ cargo run --release -p ferrustry-client
 Требования: процессор с AVX2 (x86_64) или Apple Silicon; видеокарта с Vulkan, DirectX 12 или
 Metal. На Linux нужны `libvulkan1` и `libxkbcommon-x11-0`.
 
-Сетевая игра — сервер и подключение к нему (подробнее — в [руководстве](docs/player-guide.md#сетевая-игра)):
+Сетевая игра — сервер, затем **JOIN** в главном меню игры или подключение из командной строки (подробнее — в [руководстве](docs/player-guide.md#сетевая-игра)):
 
 ```bash
 cargo run --release -p ferrustry-server

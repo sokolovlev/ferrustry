@@ -226,6 +226,11 @@ impl App {
                 }
                 self.game.map_saved(res);
             }
+            Request::RememberServer { addr, name } => {
+                if let Err(e) = std::fs::write(Game::server_file(), format!("{addr}\n{name}\n")) {
+                    eprintln!("ferrustry: cannot remember the server: {e}");
+                }
+            }
             Request::ListMaps => {
                 let maps = list_maps(&self.game.reg);
                 self.game.maps_listed(maps);
@@ -307,6 +312,8 @@ fn map_key(code: KeyCode) -> Option<Key> {
         KeyCode::Tab => Key::NextCategory,
         KeyCode::KeyC => Key::Copy,
         KeyCode::KeyZ => Key::Undo,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
         KeyCode::KeyY => Key::Redo,
         KeyCode::F6 => Key::SaveSchematic,
         KeyCode::F7 => Key::LoadSchematic,
@@ -385,6 +392,14 @@ impl ApplicationHandler for App {
                 {
                     self.game
                         .handle(Input::Key(k, event.state == ElementState::Pressed));
+                }
+                // введённые символы — для текстовых полей (с учётом раскладки и Shift)
+                if event.state == ElementState::Pressed
+                    && let Some(text) = &event.text
+                {
+                    for c in text.chars().filter(|c| !c.is_control()) {
+                        self.game.handle(Input::Text(c));
+                    }
                 }
             }
             WindowEvent::RedrawRequested => self.redraw(el),

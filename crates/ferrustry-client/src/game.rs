@@ -14,6 +14,7 @@ use ferrustry_sim::{Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePo
 use crate::ui::{Rect, Ui, text_width};
 
 mod editor;
+mod join;
 mod maps;
 mod net;
 use editor::{Editor, Leave};
@@ -71,6 +72,10 @@ pub enum Key {
     Undo,
     /// Повторить (редактор).
     Redo,
+    /// Стереть символ (текстовые поля).
+    Backspace,
+    /// Подтвердить (текстовые поля).
+    Enter,
 }
 
 /// Событие ввода.
@@ -90,6 +95,8 @@ pub enum Input {
     Resize([f32; 2]),
     /// Масштаб экрана ОС (DPI): 1.0, 1.25, 1.5, 2.0...
     Scale(f32),
+    /// Введённый символ (текстовые поля).
+    Text(char),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -119,6 +126,8 @@ pub enum Screen {
     Maps,
     /// Подключение к серверу.
     Connecting,
+    /// Ввод адреса сервера.
+    Join,
 }
 
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
@@ -143,6 +152,13 @@ pub enum Request {
     },
     /// Прочитать список карт.
     ListMaps,
+    /// Запомнить сервер и имя для следующего подключения.
+    RememberServer {
+        /// Адрес.
+        addr: String,
+        /// Имя.
+        name: String,
+    },
     /// Прочитать карту.
     LoadMap {
         /// Файл.
@@ -235,6 +251,7 @@ pub struct Game {
     maps: Vec<MapEntry>,
     maps_page: usize,
     net: Option<net::NetPlay>,
+    join: join::JoinForm,
 }
 
 /// Скользящий счётчик частоты.
@@ -315,6 +332,7 @@ impl Game {
             maps: Vec::new(),
             maps_page: 0,
             net: None,
+            join: join::JoinForm::default(),
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -470,6 +488,11 @@ impl Game {
                 }
             }
             Input::Key(k, down) => self.key(k, down),
+            Input::Text(c) => {
+                if self.screen == Screen::Join {
+                    self.join.type_char(c);
+                }
+            }
             _ if self.screen == Screen::Editor => self.editor_mouse(input),
             _ if self.screen != Screen::Playing => self.menu_mouse(input),
             Input::MouseDown(Button::Left) if self.ui.blocks(self.cursor) => {
@@ -575,6 +598,11 @@ impl Game {
             return;
         }
         match (self.screen, k) {
+            (Screen::Join, Key::Cancel) => self.screen = Screen::MainMenu,
+            (Screen::Join, Key::Enter) => self.join_connect(),
+            (Screen::Join, Key::Backspace) => self.join.backspace(),
+            (Screen::Join, Key::NextCategory) => self.join.focus = 1 - self.join.focus,
+            (Screen::Join | Screen::Connecting, _) => {}
             (Screen::PauseMenu, Key::Cancel) => self.screen = Screen::Playing,
             (Screen::Playing, Key::Cancel) => {
                 if self.show_help {
@@ -802,7 +830,11 @@ impl Game {
         let running = match self.screen {
             Screen::MainMenu | Screen::NewGame => true,
             Screen::Playing => !self.paused && self.world.outcome() == Outcome::Running,
-            Screen::PauseMenu | Screen::Editor | Screen::Maps | Screen::Connecting => false,
+            Screen::PauseMenu
+            | Screen::Editor
+            | Screen::Maps
+            | Screen::Connecting
+            | Screen::Join => false,
         };
         if self.net.is_some() {
             // сетевая партия: мир идёт по кадрам сервера на любом экране игры
@@ -932,6 +964,7 @@ impl Game {
             Screen::Editor => self.editor_hud(&mut ui, atlas, table, hud),
             Screen::Maps => self.maps_screen(&mut ui, atlas, table, hud),
             Screen::Connecting => self.connecting_screen(&mut ui, atlas, table, hud),
+            Screen::Join => self.join_screen(&mut ui, atlas, table, hud),
             Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
             Screen::PauseMenu => {
                 self.play_hud(&mut ui, atlas, table, hud);
@@ -1009,25 +1042,28 @@ impl Game {
             rgba(palette::TITANIUM),
         );
 
-        let r = self.menu_rects(4, ty + 170.0 * u);
+        let r = self.menu_rects(5, ty + 170.0 * u);
         if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
             self.screen = Screen::NewGame;
         }
         if ui.button(hud, atlas, white, r[1], "MAPS", 3.0 * u, true) {
             self.open_maps();
         }
+        if ui.button(hud, atlas, white, r[2], "JOIN", 3.0 * u, true) {
+            self.open_join();
+        }
         if ui.button(
             hud,
             atlas,
             white,
-            r[2],
+            r[3],
             "CONTINUE",
             3.0 * u,
             self.quicksave_exists,
         ) {
             self.requests.push(Request::Load);
         }
-        if ui.button(hud, atlas, white, r[3], "QUIT", 3.0 * u, true) {
+        if ui.button(hud, atlas, white, r[4], "QUIT", 3.0 * u, true) {
             self.requests.push(Request::Quit);
         }
         let ver = concat!("V", env!("CARGO_PKG_VERSION"), "  EARLY PROTOTYPE");
@@ -1968,7 +2004,7 @@ mod tests {
     fn map_editor_from_the_main_menu_to_play() {
         let (mut g, mut e) = (game(), env());
         frame(&mut g, &mut e);
-        let maps = g.menu_rects(4, 720.0 * 0.16 + 170.0)[1];
+        let maps = g.menu_rects(5, 720.0 * 0.16 + 170.0)[1];
         click(&mut g, &mut e, center(maps));
         assert_eq!(g.screen(), Screen::Maps);
         assert_eq!(g.take_requests(), vec![Request::ListMaps]);
@@ -1999,6 +2035,45 @@ mod tests {
         click(&mut g, &mut e, center(l.actions[4]));
         assert_eq!(g.screen(), Screen::Playing);
         assert!(g.world.rules().waves);
+    }
+
+    #[test]
+    fn join_screen_types_an_address_and_connects() {
+        let (mut g, mut e) = (game(), env());
+        frame(&mut g, &mut e);
+        let join = g.menu_rects(5, 720.0 * 0.16 + 170.0)[2];
+        click(&mut g, &mut e, center(join));
+        assert_eq!(g.screen(), Screen::Join);
+        // стереть адрес по умолчанию и набрать свой
+        for _ in 0..20 {
+            g.handle(Input::Key(Key::Backspace, true));
+        }
+        for c in "127.0.0.1:4999".chars() {
+            g.handle(Input::Text(c));
+        }
+        // клавиши игры на этом экране не срабатывают (R, цифры, F9)
+        g.handle(Input::Key(Key::Load, true));
+        assert!(g.take_requests().is_empty());
+        g.handle(Input::Key(Key::NextCategory, true)); // Tab — к имени
+        for _ in 0..20 {
+            g.handle(Input::Key(Key::Backspace, true));
+        }
+        for c in "Anna".chars() {
+            g.handle(Input::Text(c));
+        }
+        frame(&mut g, &mut e);
+        g.handle(Input::Key(Key::Enter, true));
+        assert_eq!(g.screen(), Screen::Connecting);
+        assert!(g.take_requests().iter().any(|r| matches!(
+            r,
+            Request::RememberServer { addr, name } if addr == "127.0.0.1:4999" && name == "Anna"
+        )));
+        // отмена подключения — в главное меню
+        frame(&mut g, &mut e);
+        let cancel = g.connecting_cancel_rect();
+        click(&mut g, &mut e, center(cancel));
+        assert_eq!(g.screen(), Screen::MainMenu);
+        assert!(!g.online());
     }
 
     fn playing() -> (Game, Env) {

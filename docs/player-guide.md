@@ -211,7 +211,9 @@ cargo run --release -p ferrustry-server -- --size medium --difficulty normal
 Он слушает UDP-порт **27960** (`--port` — другой). Карту можно взять свою: `--map maps/map-001.fmap`,
 или продолжить сохранение: `--load ferrustry-quicksave.fsave`. Пока в партии никого нет, она стоит.
 
-Игроки подключаются по адресу сервера:
+Игроки подключаются кнопкой **JOIN** в главном меню: адрес сервера (порт можно не указывать — 27960),
+**Tab** — к полю имени, **Enter** — подключиться. Игра запоминает последний сервер и имя
+(`ferrustry-server.txt`). То же из командной строки:
 
 ```bash
 cargo run --release -p ferrustry-client -- --connect 192.168.1.10 --name Anna

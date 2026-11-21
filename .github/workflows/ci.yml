@@ -48,6 +48,9 @@ jobs:
       - name: UI end-to-end (real window, mouse only)
         if: runner.os == 'Linux'
         run: scripts/e2e-ui.sh target/release/ferrustry e2e
+      - name: Multiplayer end-to-end (server process + window, keyboard input)
+        if: runner.os == 'Linux'
+        run: scripts/e2e-net.sh target/release/ferrustry target/release/ferrustry-server e2e
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux' && always()
         with:

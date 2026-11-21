@@ -9,7 +9,8 @@ saves are incompatible between minor versions (the game reports a format version
 
 ### Added
 - **Multiplayer** (S6-05): the `ferrustry-server` dedicated server (UDP, port 27960; a `.fmap` map, a save
-  or the generator) and connecting from the game with `--connect address --name name`. Co-op for up to 8 players.
+  or the generator) and connecting from the game: the **JOIN** button in the main menu (address and name typed on the keyboard,
+  the last server is remembered) or `--connect address --name name`. Co-op for up to 8 players.
 - **Multiplayer foundation** (stage 6, D-18): the `ferrustry-net` crate — an authoritative server relays
   player commands in per-tick frames, everyone simulates the world; joining a running game through a
   snapshot, checksum checks, version and content fingerprint checks. No network transport yet (one process only).
