@@ -133,6 +133,22 @@ impl UdpHub {
     pub fn connected(&self) -> usize {
         self.0.borrow().server.connected_clients()
     }
+
+    /// Трафик по соединениям (по оценке renet за последнюю секунду): отправлено и получено
+    /// байт в секунду, задержка в мс.
+    pub fn traffic(&self) -> Vec<(f64, f64, f64)> {
+        let h = self.0.borrow();
+        h.server
+            .clients_id_iter()
+            .map(|id| {
+                (
+                    h.server.bytes_sent_per_sec(id),
+                    h.server.bytes_received_per_sec(id),
+                    h.server.rtt(id) * 1000.0,
+                )
+            })
+            .collect()
+    }
 }
 
 /// Соединение с одним клиентом на сервере.

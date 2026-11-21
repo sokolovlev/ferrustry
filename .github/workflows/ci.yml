@@ -32,6 +32,8 @@ jobs:
       - run: cargo build --workspace --release
       - name: Determinism and save check
         run: cargo run --release -p ferrustry-headless -- save-check
+      - name: B7 smoke (server + 4 UDP bots)
+        run: cargo run --release -p ferrustry-headless -- net-bench --clients 4 --conveyors 2000 --seconds 3
       - name: Dedicated server smoke test (UDP)
         run: cargo run --release -p ferrustry-server -- --port 0 --size small --run-empty --ticks 90
       - name: Map file check (.fmap)

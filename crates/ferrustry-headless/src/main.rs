@@ -2,6 +2,7 @@
 
 mod alloc;
 mod balance;
+mod net_bench;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -34,6 +35,8 @@ ferrustry-headless — headless-запуск симуляции Ferrustry
   ferrustry-headless replay FILE                      воспроизвести и сверить контрольные точки
   ferrustry-headless balance [--difficulty easy|normal|hard] [--waves N] [--lang ru|en] [--out FILE]
                                                     отчёт о балансе: кривая сложности
+  ferrustry-headless net-bench [--clients N] [--conveyors N] [--seconds S] [--rate R] [--out FILE]
+                                                    B7: сервер под нагрузкой ботов по UDP
   ferrustry-headless map-gen --out FILE [--size small|medium|large] [--difficulty ...] [--seed S]
                                                     сгенерировать карту в .fmap
   ferrustry-headless map-check FILE [--ticks N] [--seed S]  проверить карту, начать по ней партию
@@ -179,6 +182,22 @@ fn real_main(args: &mut Args) -> Result<(), String> {
             match out {
                 Some(path) => std::fs::write(&path, &text).map_err(|e| format!("{path}: {e}"))?,
                 None => print!("{text}"),
+            }
+            Ok(())
+        }
+        "net-bench" => {
+            let clients = u32::try_from(args.number("--clients", 8)?).map_err(|e| e.to_string())?;
+            let conveyors =
+                u32::try_from(args.number("--conveyors", 10_000)?).map_err(|e| e.to_string())?;
+            let seconds = args.number("--seconds", 20)? as f64;
+            let rate = u32::try_from(args.number("--rate", 5)?).map_err(|e| e.to_string())?;
+            let out = args.value("--out")?;
+            args.finish()?;
+            let report = net_bench::run(&reg, clients, conveyors, seconds, rate)?;
+            let json = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+            println!("{json}");
+            if let Some(path) = out {
+                std::fs::write(&path, json).map_err(|e| format!("{path}: {e}"))?;
             }
             Ok(())
         }

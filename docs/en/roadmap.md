@@ -80,7 +80,7 @@ See `docs/en/performance-design.md`, tasks P-01…P-10.
 | S6-02 (**done** 2026-11-20) | Session: the server orders commands by tick, clients simulate by frames; a "server + 3 clients, thousands of ticks, all hashes match" test | S6-01 |
 | S6-03 | Joining a running game: a background snapshot, catching up through frames (D-21) | S6-02 |
 | S6-04 (**done** 2026-11-21) | A fast state checksum (not through serialization) and recovery on a mismatch (D-20) | S6-02 |
-| S6-05 (**done** 2026-11-21, except B7) | renet transport (D-08), `ferrustry-server` (headless, config), connecting from the client, B7 | S6-02 |
+| S6-05 (**done** 2026-11-21, B7 — `net-bench`, [results](performance.md)) | renet transport (D-08), `ferrustry-server` (headless, config), connecting from the client, B7 | S6-02 |
 
 ## Major risks
 

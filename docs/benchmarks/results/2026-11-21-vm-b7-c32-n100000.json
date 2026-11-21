@@ -1,0 +1,21 @@
+{
+  "clients": 32,
+  "conveyors": 100000,
+  "buildings": 125517,
+  "seconds": 15.0,
+  "commands_per_client_per_sec": 5,
+  "join_all_ms": 1761.499981,
+  "snapshot_bytes": 1580257,
+  "plain_tick_mean_us": 468.96688666666665,
+  "server_frame_mean_us": 1471.6656012396697,
+  "server_frame_p99_us": 4990.298,
+  "server_frame_max_us": 7177.837,
+  "network_mean_us": 311.3774028925627,
+  "ticks": 484,
+  "commands_sent": 2598,
+  "payload_kb_per_client": 1.3592447916666666,
+  "sent_kb_per_client": 1.7519696178660424,
+  "recv_kb_per_client": 0.4867281125450438,
+  "rtt_ms": 33.33333299999481,
+  "frames_received_per_client": 483.0
+}

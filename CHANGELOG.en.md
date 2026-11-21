@@ -12,6 +12,8 @@ saves are incompatible between minor versions (the game reports a format version
   or the generator) and connecting from the game: the **JOIN** button in the main menu (address and name typed on the keyboard,
   the last server is remembered) or `--connect address --name name`. Co-op for up to 8 players. If a building
   didn't go up, the game says why (every client knows its own command results from the shared simulation).
+- **B7** `ferrustry-headless net-bench`: the server under bot load over UDP. 32 players on a megabase: ~1.75 KB/s
+  per client, networking 0.3 ms per frame; the main cost is building itself on a large base.
 - **Multiplayer foundation** (stage 6, D-18): the `ferrustry-net` crate — an authoritative server relays
   player commands in per-tick frames, everyone simulates the world; joining a running game through a
   snapshot, checksum checks, version and content fingerprint checks. No network transport yet (one process only).

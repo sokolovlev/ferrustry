@@ -687,6 +687,7 @@ version = "0.7.0"
 dependencies = [
  "ferrustry-content",
  "ferrustry-format",
+ "ferrustry-net",
  "ferrustry-sim",
  "memory-stats",
  "postcard",

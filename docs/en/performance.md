@@ -21,7 +21,7 @@ Scenarios are Ferrustry maps generated deterministically from a seed (`ferrustry
 | B4 | 500 / 2,000 units walk to the core | Flow fields, movement, collisions | 4 |
 | B5 | Mass battle: 1,000 units, 300 turrets, thousands of projectiles | Combat, spatial grid | 4 |
 | B6 | 2048×2048 map with active logistics | Memory, chunks, cache | 5 |
-| B7 | Dedicated server, 8 and 32 bot clients | Networking, serialization | 6 |
+| B7 | Dedicated server, 8 and 32 bot clients (`ferrustry-headless net-bench`) | Networking, serialization | 6 |
 | B8 | The B5 battle with a wall placed or removed on the enemies' path every 5 ticks | Local flow field repair | 4 |
 
 ## 3. Metrics
@@ -385,3 +385,28 @@ every frame, R-01). That is almost four times the 60 FPS target, so the GPU floo
 - The main cost of a full hash is walking the structures during serialization, not the hash itself; so neither a
   fast hash nor hashing a copy in the background (a megabase copy takes 11.8 ms) removes the spike. The rolling
   checksum splits the work over 150 ticks: no spike, the mean cost is ~0.5% of the tick budget.
+
+### 2026-11-21 — B7: a dedicated server under bot load (S6-05)
+
+`ferrustry-headless net-bench`: bots connect over real UDP (renet, 127.0.0.1), join through a snapshot, each send
+5 build commands per second and read everything the server sends (they don't simulate the world). The server runs
+at 30 Hz in real time, 15 s measured. Cloud VM, 4 cores; the bots share the CPU with the server. Files:
+`docs/benchmarks/results/2026-11-21-vm-b7-*.json`.
+
+| Clients | Base | Server frame: mean / p99 / worst | Network in the frame | Payload → client | With headers → / ← | All joined |
+|---|---|---|---|---|---|---|
+| 8 | B3-10k (12.6k buildings) | 0.21 / 0.57 / 0.63 ms | 0.08 ms | 0.39 KB/s | 0.86 / 0.48 KB/s | 0.25 s |
+| 8 | B3-100k (125k) | 1.18 / 4.4 / 5.4 ms | 0.11 ms | 0.39 KB/s | 0.86 / 0.48 KB/s | 0.66 s |
+| 32 | B3-10k | 0.47 / 0.95 / 1.05 ms | 0.28 ms | 1.24 KB/s | 1.74 / 0.49 KB/s | 0.26 s |
+| 32 | B3-100k | 1.47 / 5.0 / 7.2 ms | 0.31 ms | 1.36 KB/s | 1.75 / 0.49 KB/s | **1.76 s** |
+
+- **Traffic** is as the design predicted (D-18): ~1–2 KB/s per client for any base. It grows with the number of
+  players because a frame carries everyone's commands: 32 players — 56 KB/s of server upload in total.
+- **Networking** (receiving, broadcasting, acks) — 0.1–0.3 ms per frame.
+- **The main cost is building**: a megabase tick under 40–160 commands per second is ~1.1–1.2 ms versus 0.29 ms
+  without building. That is the cost of any building on a large base (~230 µs, link caches reset by the topology
+  epoch, see 2026-11-20) — in a multiplayer game with active players it is already noticeable. p99 up to 5 ms —
+  15% of the tick budget.
+- **32 players joining a megabase take 1.76 s**: the server writes a snapshot **for each** joining player (~47 ms)
+  and stands still while writing. The fix is S6-03: one snapshot per tick for all joining players, written in the
+  background.
