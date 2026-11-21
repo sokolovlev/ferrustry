@@ -15,6 +15,7 @@ path = "src/main.rs"
 ferrustry-content.workspace = true
 ferrustry-sim.workspace = true
 ferrustry-format.workspace = true
+ferrustry-net.workspace = true
 ferrustry-render = { path = "../ferrustry-render" }
 winit = "0.30"
 pollster = "1"

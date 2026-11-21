@@ -1,6 +1,6 @@
 # Multiplayer: design (stage 6)
 
-Status: **design approved** (2026-11-20). Decisions D-18…D-22 are in [decisions.md](decisions.md).
+Status: **design approved** (2026-11-20), **first playable version** (2026-11-21). Decisions D-18…D-22 are in [decisions.md](decisions.md).
 Every number below is measured (`examples/net_estimates.rs`, cloud VM; the owner's PC is faster), not
 promised.
 
@@ -94,4 +94,5 @@ thousands of ticks.
 | S6-01 protocol | **Done** (2026-11-20) without a chunked snapshot: `ferrustry-net` — messages `Hello`/`Command` and `Welcome`/`Reject`/`Frame`/`Checksum` (postcard), the protocol version, the simulation version and a **content fingerprint** (`ContentRegistry::fingerprint` — names and numbers: mods with different numbers won't join), id checks in commands, a message size limit, an in-memory channel |
 | S6-02 session | **Done** (2026-11-20): `Server` (joining, frames, checksums, dropping misbehaving clients), `Client` (snapshot, simulating by frames, checking). Test: a server and 3 clients over 2000 ticks with building and combat, the third joins a running game and catches up in batches — the state matches bit for bit for everyone; incompatible clients and a full server are rejected; tampering with a client's state is caught at the first check |
 | S6-04 checks | **Done** (2026-11-21): a rolling checksum — after every tick part `t % 150` of the world is hashed (`World::checksum_part`), the whole state every 5 s. The canonical representation (as in a save) is hashed, so a client that joined through a snapshot matches the server even though its internal memory layout differs (the test fails if the layout is hashed). On a mismatch the client requests a snapshot itself, doesn't simulate until it arrives, and continues from it |
-| S6-03, S6-05 | Ahead: a background chunked snapshot, a network transport, a dedicated server, connecting from the game |
+| S6-05 network | **Done** (2026-11-21): UDP via renet 2 + `renet_netcode` (D-08) — a reliable ordered channel, large messages (the snapshot) are split into packets; unencrypted mode (direct address). `ferrustry-server` — a 30 Hz dedicated server (a `.fmap` map, a save or the generator; paused without players); the client's `--connect`. Tests: 2 clients and a 20k megabase over real UDP on 127.0.0.1 match the server; the game connects to a server over UDP, builds and matches it. Live: the game window and the server process — `ONLINE PLAYER 1 PING 16 MS`, 30 TPS |
+| S6-03 | Ahead: a background snapshot (a player joining currently delays a megabase tick by ~50 ms) |

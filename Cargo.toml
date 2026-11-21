@@ -24,6 +24,8 @@ crc32fast = "1"
 memory-stats = "1"
 criterion = { version = "0.8", default-features = false }
 rayon = "1.10"
+renet = "2.0.1"
+renet_netcode = "2.0.1"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

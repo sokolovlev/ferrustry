@@ -15,6 +15,7 @@ use crate::ui::{Rect, Ui, text_width};
 
 mod editor;
 mod maps;
+mod net;
 use editor::{Editor, Leave};
 pub use maps::{LEGACY_MAP_FILE, MAPS_DIR, MapEntry, MapPurpose, next_map_path};
 
@@ -116,6 +117,8 @@ pub enum Screen {
     Editor,
     /// Список карт.
     Maps,
+    /// Подключение к серверу.
+    Connecting,
 }
 
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
@@ -231,6 +234,7 @@ pub struct Game {
     editor: Editor,
     maps: Vec<MapEntry>,
     maps_page: usize,
+    net: Option<net::NetPlay>,
 }
 
 /// Скользящий счётчик частоты.
@@ -310,6 +314,7 @@ impl Game {
             editor: Editor::default(),
             maps: Vec::new(),
             maps_page: 0,
+            net: None,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -565,6 +570,10 @@ impl Game {
         if !down {
             return;
         }
+        if self.net.is_some() && matches!(k, Key::Pause | Key::Faster | Key::Slower | Key::Load) {
+            self.notify("NOT AVAILABLE IN A MULTIPLAYER GAME");
+            return;
+        }
         match (self.screen, k) {
             (Screen::PauseMenu, Key::Cancel) => self.screen = Screen::Playing,
             (Screen::Playing, Key::Cancel) => {
@@ -741,7 +750,7 @@ impl Game {
     }
 
     fn queue(&mut self, cmds: Vec<Command>) {
-        if self.paused {
+        if self.paused && self.net.is_none() {
             // на паузе стройка применяется сразу, без хода симуляции
             let results: Vec<_> = cmds
                 .iter()
@@ -793,9 +802,12 @@ impl Game {
         let running = match self.screen {
             Screen::MainMenu | Screen::NewGame => true,
             Screen::Playing => !self.paused && self.world.outcome() == Outcome::Running,
-            Screen::PauseMenu | Screen::Editor | Screen::Maps => false,
+            Screen::PauseMenu | Screen::Editor | Screen::Maps | Screen::Connecting => false,
         };
-        if running {
+        if self.net.is_some() {
+            // сетевая партия: мир идёт по кадрам сервера на любом экране игры
+            ticks = self.update_net(dt);
+        } else if running {
             let step = 1.0 / f64::from(TICKS_PER_SECOND);
             self.accumulator += dt * f64::from(self.speed);
             // не больше 8 тиков за кадр — защита от «спирали смерти»
@@ -919,6 +931,7 @@ impl Game {
             Screen::NewGame => self.new_game_screen(&mut ui, atlas, table, hud),
             Screen::Editor => self.editor_hud(&mut ui, atlas, table, hud),
             Screen::Maps => self.maps_screen(&mut ui, atlas, table, hud),
+            Screen::Connecting => self.connecting_screen(&mut ui, atlas, table, hud),
             Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
             Screen::PauseMenu => {
                 self.play_hud(&mut ui, atlas, table, hud);
@@ -1231,7 +1244,7 @@ impl Game {
             r[2],
             "LOAD  (F9)",
             s,
-            self.quicksave_exists,
+            self.quicksave_exists && self.net.is_none(),
         ) {
             self.requests.push(Request::Load);
         }
@@ -1282,14 +1295,22 @@ impl Game {
             hud.text(atlas, 12.0 * u, 80.0 * u, 2.0 * u, &noise, col);
         }
         hud.text(atlas, 12.0 * u, 10.0 * u, 3.0 * u, "FERRUSTRY", orange);
-        let status = format!(
-            "TICK {}  FPS {:.0}  TPS {:.0}  X{}{}",
-            self.world.tick_count(),
-            self.fps.value,
-            self.tps.value,
-            self.speed,
-            if self.paused { "  PAUSED" } else { "" }
-        );
+        let status = match self.net_status() {
+            Some(net) => format!(
+                "TICK {}  FPS {:.0}  TPS {:.0}  {net}",
+                self.world.tick_count(),
+                self.fps.value,
+                self.tps.value
+            ),
+            None => format!(
+                "TICK {}  FPS {:.0}  TPS {:.0}  X{}{}",
+                self.world.tick_count(),
+                self.fps.value,
+                self.tps.value,
+                self.speed,
+                if self.paused { "  PAUSED" } else { "" }
+            ),
+        };
         hud.text(atlas, 12.0 * u, 40.0 * u, 2.0 * u, &status, steel);
 
         // кнопка меню в правом верхнем углу и ресурсы ядер под ней

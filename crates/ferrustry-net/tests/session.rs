@@ -81,7 +81,7 @@ fn server_and_three_clients_stay_identical() {
     .iter()
     .map(|n| reg.block_by_name(n).unwrap())
     .collect();
-    let mut clients: Vec<Client<MemLink>> = Vec::new();
+    let mut clients: Vec<(Client<MemLink>, Option<World>)> = Vec::new();
     let joins = [0u64, 150, 700]; // третий входит в идущую партию
     let mut rng = Rng::new(99);
     let mut checks_seen = 0;
@@ -89,10 +89,10 @@ fn server_and_three_clients_stay_identical() {
         if let Some(i) = joins.iter().position(|&t| t == step) {
             let (s, c) = mem_pair();
             server.accept(s);
-            clients.push(Client::connect(c, &reg, &format!("p{i}")).unwrap());
+            clients.push((Client::connect(c, &reg, &format!("p{i}")).unwrap(), None));
         }
-        for c in &mut clients {
-            if c.world().is_some() && rng.below(3) == 0 {
+        for (c, _) in &mut clients {
+            if c.joined() && rng.below(3) == 0 {
                 c.send(random_command(&mut rng, &blocks)).unwrap();
             }
         }
@@ -103,28 +103,33 @@ fn server_and_three_clients_stay_identical() {
             );
         }
         server.tick(&reg);
-        for (i, c) in clients.iter_mut().enumerate() {
+        for (i, (c, w)) in clients.iter_mut().enumerate() {
             for e in c.poll(&reg) {
-                assert!(matches!(e, ClientEvent::Joined(_)), "client {i}: {e:?}");
+                match e {
+                    ClientEvent::Joined(_, snapshot) => *w = Some(*snapshot),
+                    other => panic!("client {i}: {other:?}"),
+                }
             }
             // последний клиент считает медленнее и догоняет пачками
             let max = if i == 2 { 3 } else { usize::MAX };
-            let (_, events) = c.advance(&reg, max);
-            assert!(events.is_empty(), "client {i}: {events:?}");
+            if let Some(w) = w {
+                let (_, events) = c.advance(&reg, w, max);
+                assert!(events.is_empty(), "client {i}: {events:?}");
+            }
         }
         if step % 60 == 0 {
             checks_seen += 1;
         }
     }
     // дать отставшему дорассчитать
-    for c in &mut clients {
-        let (_, events) = c.advance(&reg, usize::MAX);
+    for (c, w) in &mut clients {
+        let (_, events) = c.advance(&reg, w.as_mut().unwrap(), usize::MAX);
         assert!(events.is_empty());
     }
     let h = state_hash(server.world());
     assert_eq!(server.players(), 3);
-    for (i, c) in clients.iter().enumerate() {
-        let w = c.world().unwrap();
+    for (i, (c, w)) in clients.iter().enumerate() {
+        let w = w.as_ref().unwrap();
         assert_eq!(w.tick_count(), server.world().tick_count(), "client {i}");
         assert_eq!(state_hash(w), h, "client {i} diverged");
         assert_eq!(c.resyncs(), 0, "client {i} never diverged");
@@ -188,10 +193,13 @@ fn desync_is_detected_and_recovered_from_a_snapshot() {
     server.accept(s);
     let mut client = Client::connect(c, &reg, "p").unwrap();
     server.poll(&reg);
-    client.poll(&reg);
+    let Some(ClientEvent::Joined(_, w)) = client.poll(&reg).pop() else {
+        panic!("not joined")
+    };
+    let mut w = *w;
     // «ошибка детерминизма»: клиент тайком получил предмет
     let ingot = reg.item_by_name("iron_ingot").unwrap();
-    client.world_mut().unwrap().grant(&reg, ingot, 1);
+    w.grant(&reg, ingot, 1);
     let (mut desync, mut resynced, mut server_saw) = (None, None, false);
     for _ in 0..200 {
         for e in server.poll(&reg) {
@@ -199,11 +207,12 @@ fn desync_is_detected_and_recovered_from_a_snapshot() {
         }
         server.tick(&reg);
         for e in client.poll(&reg) {
-            if let ClientEvent::Resynced(t) = e {
-                resynced = Some(t);
+            if let ClientEvent::Resynced(fresh) = e {
+                resynced = Some(fresh.tick_count());
+                w = *fresh;
             }
         }
-        let (_, ev) = client.advance(&reg, usize::MAX);
+        let (_, ev) = client.advance(&reg, &mut w, usize::MAX);
         for e in ev {
             match e {
                 ClientEvent::Desync { tick, .. } => {
@@ -220,9 +229,8 @@ fn desync_is_detected_and_recovered_from_a_snapshot() {
     assert!(resynced.is_some_and(|t| t >= 59), "{resynced:?}");
     assert_eq!(client.resyncs(), 1);
     // после снимка клиент снова идёт вровень с сервером
-    let w = client.world().unwrap();
     assert_eq!(w.tick_count(), server.world().tick_count());
-    assert_eq!(state_hash(w), state_hash(server.world()));
+    assert_eq!(state_hash(&w), state_hash(server.world()));
 }
 
 #[test]

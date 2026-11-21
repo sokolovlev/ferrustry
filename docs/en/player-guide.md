@@ -200,6 +200,32 @@ are occupied are simply not placed (the rest of the schematic is built). **F6** 
 **F7** loads it. The schematic file stores buildings by name, so it survives game updates; if a building
 no longer exists in the game, loading tells you so.
 
+## Multiplayer
+
+Co-op for up to 8 players on a dedicated server: a shared base and shared resources. The server is a
+separate program without graphics:
+
+```bash
+cargo run --release -p ferrustry-server -- --size medium --difficulty normal
+```
+
+It listens on UDP port **27960** (`--port` for another). You can use your own map: `--map maps/map-001.fmap`,
+or continue a save: `--load ferrustry-quicksave.fsave`. While nobody is in the game, it stands still.
+
+Players connect by the server's address:
+
+```bash
+cargo run --release -p ferrustry-client -- --connect 192.168.1.10 --name Anna
+```
+
+The corner of the screen shows `ONLINE PLAYER n PING x MS`. The server controls time, so pause, speed and
+loading saves are not available in a multiplayer game; **F5** saves a copy of the game for you. Going to the
+main menu disconnects. Only the same game version with the same content data can connect — otherwise the
+server refuses and says why.
+
+If players can't connect, allow UDP 27960 in the server's firewall (and forward it on the router to play over
+the internet).
+
 ## Saves
 
 **F5** quick-saves, **F9** loads, **CONTINUE** in the menu resumes the last one. The simulation

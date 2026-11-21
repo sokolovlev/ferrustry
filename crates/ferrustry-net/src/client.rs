@@ -1,5 +1,9 @@
 //! Клиент партии: снимок от сервера, расчёт тиков по кадрам, сверка скользящей контрольной
 //! суммы и восстановление при расхождении (D-20).
+//!
+//! Мир клиент не хранит: его хранит игра (рисует, сохраняет), а клиент получает его в
+//! [`Client::advance`]. Снимки приходят событиями [`ClientEvent::Joined`] и
+//! [`ClientEvent::Resynced`].
 
 use std::collections::VecDeque;
 
@@ -13,8 +17,8 @@ use crate::{
 /// Что произошло у клиента.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientEvent {
-    /// Принят в партию; мир загружен со снимка.
-    Joined(PlayerId),
+    /// Принят в партию: номер игрока и мир со снимка (дальше его считает [`Client::advance`]).
+    Joined(PlayerId, Box<World>),
     /// Сервер отказал.
     Rejected(String),
     /// Состояние разошлось с сервером в периоде, закончившемся на `tick` (D-20). Клиент сам
@@ -27,8 +31,8 @@ pub enum ClientEvent {
         /// Сумма клиента.
         local: u64,
     },
-    /// Мир заменён свежим снимком сервера на тике `0`.
-    Resynced(u64),
+    /// Свежий снимок сервера после расхождения: заменить им свой мир.
+    Resynced(Box<World>),
     /// Соединение потеряно или сервер нарушил протокол.
     Disconnected(String),
 }
@@ -36,7 +40,8 @@ pub enum ClientEvent {
 /// Клиент.
 pub struct Client<L: Link> {
     link: L,
-    world: Option<World>,
+    /// Тик мира после последнего снимка/кадра (`None` — ещё не вошли).
+    at: Option<u64>,
     player: Option<PlayerId>,
     frames: VecDeque<(u64, Vec<(PlayerId, Command)>)>,
     server_checks: VecDeque<(u64, u64)>,
@@ -59,7 +64,7 @@ impl<L: Link> Client<L> {
         }))?;
         Ok(Self {
             link,
-            world: None,
+            at: None,
             player: None,
             frames: VecDeque::new(),
             server_checks: VecDeque::new(),
@@ -72,15 +77,19 @@ impl<L: Link> Client<L> {
         })
     }
 
-    /// Мир клиента (после входа).
-    pub fn world(&self) -> Option<&World> {
-        self.world.as_ref()
+    /// Вошёл ли клиент в партию.
+    pub fn joined(&self) -> bool {
+        self.at.is_some()
     }
 
-    /// Мир клиента для изменения (только для тестов и отладки: правка мира ломает синхронность).
-    #[doc(hidden)]
-    pub fn world_mut(&mut self) -> Option<&mut World> {
-        self.world.as_mut()
+    /// Транспорт (для обслуживания: `update`/`flush` у сетевого канала).
+    pub fn link_mut(&mut self) -> &mut L {
+        &mut self.link
+    }
+
+    /// Транспорт (например, для показа задержки).
+    pub fn link(&self) -> &L {
+        &self.link
     }
 
     /// Номер игрока.
@@ -130,16 +139,16 @@ impl<L: Link> Client<L> {
                     player,
                     checksum_every,
                     snapshot,
-                }) if self.world.is_none() => match ferrustry_format::read_save(&snapshot, reg) {
+                }) if self.at.is_none() => match ferrustry_format::read_save(&snapshot, reg) {
                     Ok(w) => {
-                        self.world = Some(w);
+                        self.at = Some(w.tick_count());
                         self.player = Some(player);
                         self.rolling = Rolling::new(checksum_every);
-                        events.push(ClientEvent::Joined(player));
+                        events.push(ClientEvent::Joined(player, Box::new(w)));
                     }
                     Err(e) => self.close(format!("bad snapshot: {e}"), &mut events),
                 },
-                Ok(ServerMsg::Snapshot(snapshot)) if self.world.is_some() => {
+                Ok(ServerMsg::Snapshot(snapshot)) if self.at.is_some() => {
                     match ferrustry_format::read_save(&snapshot, reg) {
                         Ok(w) => {
                             let t = w.tick_count();
@@ -148,10 +157,10 @@ impl<L: Link> Client<L> {
                             self.server_checks.retain(|&(tick, _)| tick > t);
                             self.local_checks.clear();
                             self.rolling.reset();
-                            self.world = Some(w);
+                            self.at = Some(t);
                             self.resyncing = false;
                             self.resyncs += 1;
-                            events.push(ClientEvent::Resynced(t));
+                            events.push(ClientEvent::Resynced(Box::new(w)));
                         }
                         Err(e) => self.close(format!("bad snapshot: {e}"), &mut events),
                     }
@@ -160,10 +169,10 @@ impl<L: Link> Client<L> {
                     events.push(ClientEvent::Rejected(why));
                     self.closed = true;
                 }
-                Ok(ServerMsg::Frame { tick, commands }) if self.world.is_some() => {
+                Ok(ServerMsg::Frame { tick, commands }) if self.at.is_some() => {
                     self.frames.push_back((tick, commands));
                 }
-                Ok(ServerMsg::Checksum { tick, hash }) if self.world.is_some() => {
+                Ok(ServerMsg::Checksum { tick, hash }) if self.at.is_some() => {
                     self.server_checks.push_back((tick, hash));
                     self.reconcile(&mut events);
                 }
@@ -210,15 +219,18 @@ impl<L: Link> Client<L> {
         }
     }
 
-    /// Рассчитать до `max` тиков по полученным кадрам. Возвращает число тиков и события.
-    /// Пока клиент ждёт снимок после расхождения, тики не считаются (кадры копятся).
-    pub fn advance(&mut self, reg: &ContentRegistry, max: usize) -> (usize, Vec<ClientEvent>) {
+    /// Рассчитать до `max` тиков мира `world` (того, что пришёл в `Joined`/`Resynced`) по
+    /// полученным кадрам. Возвращает число тиков и события. Пока клиент ждёт снимок после
+    /// расхождения, тики не считаются (кадры копятся).
+    pub fn advance(
+        &mut self,
+        reg: &ContentRegistry,
+        world: &mut World,
+        max: usize,
+    ) -> (usize, Vec<ClientEvent>) {
         let mut events = Vec::new();
         let mut done = 0;
-        while done < max && !self.resyncing && !self.closed {
-            let Some(world) = self.world.as_mut() else {
-                break;
-            };
+        while done < max && !self.resyncing && !self.closed && self.at.is_some() {
             let Some((tick, commands)) = self.frames.pop_front() else {
                 break;
             };
@@ -229,6 +241,7 @@ impl<L: Link> Client<L> {
             }
             let cmds: Vec<Command> = commands.into_iter().map(|(_, c)| c).collect();
             world.tick(reg, &cmds);
+            self.at = Some(world.tick_count());
             done += 1;
             if let Some(check) = self.rolling.after_tick(world) {
                 self.local_checks.push_back(check);

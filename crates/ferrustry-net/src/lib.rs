@@ -6,10 +6,12 @@
 //! получает снимок мира (формат сохранений) и дальше идёт по кадрам (D-21).
 //!
 //! Транспорт абстрагирован ([`Link`]): надёжный упорядоченный канал сообщений. Для тестов —
-//! канал в памяти ([`mem_pair`]); сетевой транспорт (renet, D-08) — задача S6-05.
+//! канал в памяти ([`mem_pair`]); по сети — UDP через renet (D-08): [`UdpHub`] на сервере,
+//! [`UdpLink`] у клиента.
 
 mod client;
 mod server;
+mod udp;
 
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 
@@ -18,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 pub use client::{Client, ClientEvent};
 pub use server::{Server, ServerConfig, ServerEvent};
+pub use udp::{DEFAULT_PORT, UdpHub, UdpLink, UdpPeer};
 
 /// Версия протокола: несовпадение — понятный отказ при подключении.
 pub const PROTOCOL_VERSION: u32 = 2;

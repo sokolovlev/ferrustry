@@ -40,6 +40,16 @@ cargo run --release -p ferrustry-client
 Требования: процессор с AVX2 (x86_64) или Apple Silicon; видеокарта с Vulkan, DirectX 12 или
 Metal. На Linux нужны `libvulkan1` и `libxkbcommon-x11-0`.
 
+Сетевая игра — сервер и подключение к нему (подробнее — в [руководстве](docs/player-guide.md#сетевая-игра)):
+
+```bash
+cargo run --release -p ferrustry-server
+```
+
+```bash
+cargo run --release -p ferrustry-client -- --connect 192.168.1.10
+```
+
 Без окна:
 
 ```bash
@@ -54,6 +64,7 @@ cargo run --release -p ferrustry-headless -- run
 | `ferrustry-sim` | Детерминированная симуляция: мир, логистика, энергия, тепло, бой, генератор карт, схемы |
 | `ferrustry-format` | Файлы сохранений, карт, replay и схем |
 | `ferrustry-net` | Сетевая игра: протокол, сервер и клиент с рассылкой команд (этап 6) |
+| `ferrustry-server` | Выделенный сервер сетевой игры (UDP) |
 | `ferrustry-headless` | Прогон сценариев, бенчмарки, replay, проверка сохранений и карт, отчёт о балансе |
 | `ferrustry-render` | 2D-рендерер на wgpu: процедурный атлас, instanced-спрайты, камера |
 | `ferrustry-client` | Игра: окно (winit), ввод, стройка, интерфейс |

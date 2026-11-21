@@ -1,0 +1,21 @@
+[package]
+name = "ferrustry-server"
+description = "Ferrustry dedicated server (headless, command relay over UDP)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ferrustry-server"
+path = "src/main.rs"
+
+[dependencies]
+ferrustry-content.workspace = true
+ferrustry-sim.workspace = true
+ferrustry-format.workspace = true
+ferrustry-net.workspace = true
+
+[lints]
+workspace = true
