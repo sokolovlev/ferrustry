@@ -64,7 +64,10 @@ fn two_clients_over_udp_stay_identical() {
             }
             if let Some(w) = w {
                 let (_, ev) = c.advance(&reg, w, usize::MAX);
-                assert!(ev.is_empty(), "{ev:?}");
+                assert!(
+                    ev.iter().all(|e| matches!(e, ClientEvent::Results(_))),
+                    "{ev:?}"
+                );
                 if ticks_after_join < 350 && rng.below(4) == 0 {
                     let p = TilePos::new(rng.below(120) as i32, rng.below(120) as i32);
                     c.send(Command::Place {
@@ -97,7 +100,10 @@ fn two_clients_over_udp_stay_identical() {
             c.link_mut().update(dt).unwrap();
             assert!(c.poll(&reg).is_empty());
             let (_, ev) = c.advance(&reg, w.as_mut().unwrap(), usize::MAX);
-            assert!(ev.is_empty(), "{ev:?}");
+            assert!(
+                ev.iter().all(|e| matches!(e, ClientEvent::Results(_))),
+                "{ev:?}"
+            );
             c.link_mut().flush().unwrap();
         }
         std::thread::sleep(Duration::from_millis(1));

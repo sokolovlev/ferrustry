@@ -8,7 +8,7 @@
 use std::collections::VecDeque;
 
 use ferrustry_content::ContentRegistry;
-use ferrustry_sim::{Command, SIM_VERSION, World};
+use ferrustry_sim::{Command, CommandError, SIM_VERSION, World};
 
 use crate::{
     ClientMsg, Link, NetError, PROTOCOL_VERSION, PlayerId, Rolling, ServerMsg, decode, encode,
@@ -35,6 +35,10 @@ pub enum ClientEvent {
     Resynced(Box<World>),
     /// Соединение потеряно или сервер нарушил протокол.
     Disconnected(String),
+    /// Результаты **своих** команд, исполненных в рассчитанных тиках (по порядку отправки):
+    /// чтобы показать игроку, почему постройка не встала. Симуляция у всех одна, поэтому
+    /// результат у клиента тот же, что и на сервере.
+    Results(Vec<Result<(), CommandError>>),
 }
 
 /// Клиент.
@@ -229,6 +233,7 @@ impl<L: Link> Client<L> {
         max: usize,
     ) -> (usize, Vec<ClientEvent>) {
         let mut events = Vec::new();
+        let mut own = Vec::new();
         let mut done = 0;
         while done < max && !self.resyncing && !self.closed && self.at.is_some() {
             let Some((tick, commands)) = self.frames.pop_front() else {
@@ -239,14 +244,26 @@ impl<L: Link> Client<L> {
                 self.close(why, &mut events);
                 break;
             }
-            let cmds: Vec<Command> = commands.into_iter().map(|(_, c)| c).collect();
-            world.tick(reg, &cmds);
+            let (players, cmds): (Vec<PlayerId>, Vec<Command>) = commands.into_iter().unzip();
+            let results = world.tick(reg, &cmds);
+            if let Some(me) = self.player {
+                own.extend(
+                    players
+                        .iter()
+                        .zip(results)
+                        .filter(|&(&p, _)| p == me)
+                        .map(|(_, r)| r),
+                );
+            }
             self.at = Some(world.tick_count());
             done += 1;
             if let Some(check) = self.rolling.after_tick(world) {
                 self.local_checks.push_back(check);
                 self.reconcile(&mut events);
             }
+        }
+        if !own.is_empty() {
+            events.push(ClientEvent::Results(own));
         }
         (done, events)
     }

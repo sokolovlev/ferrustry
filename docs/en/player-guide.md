@@ -221,7 +221,9 @@ cargo run --release -p ferrustry-client -- --connect 192.168.1.10 --name Anna
 ```
 
 The corner of the screen shows `ONLINE PLAYER n PING x MS`. The server controls time, so pause, speed and
-loading saves are not available in a multiplayer game; **F5** saves a copy of the game for you. Going to the
+loading saves are not available in a multiplayer game; **F5** saves a copy of the game for you. If a building
+didn't go up (not enough resources, the tile is occupied — including by another player at the same moment), the
+game tells you why — as in single player, just after the round trip to the server. Going to the
 main menu disconnects. Only the same game version with the same content data can connect — otherwise the
 server refuses and says why.
 

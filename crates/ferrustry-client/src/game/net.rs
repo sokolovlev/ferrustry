@@ -123,6 +123,7 @@ impl Game {
                 ClientEvent::Rejected(why) | ClientEvent::Disconnected(why) => {
                     failure = Some(why);
                 }
+                ClientEvent::Results(_) => {}
             }
         }
         let Some(net) = self.net.as_mut() else {
@@ -147,6 +148,8 @@ impl Game {
             ticks = done as u32;
             for e in events {
                 match e {
+                    // почему не встала постройка — как в одиночной игре
+                    ClientEvent::Results(r) => self.report_failures(&r),
                     ClientEvent::Desync { tick, .. } => {
                         self.message = Some((
                             format!("DESYNC AT TICK {tick}: RELOADING FROM THE SERVER"),
@@ -296,6 +299,25 @@ mod tests {
             "command reached the server"
         );
         assert_eq!(state_hash(&g.world), state_hash(server.world()));
+        // та же клетка ещё раз — отказ сервера виден игроку
+        g.queue(vec![Command::Place {
+            block: wall,
+            origin: at,
+            rot: Dir::Right,
+        }]);
+        let target = server.world().tick_count() + 30;
+        while g.world.tick_count() < target {
+            assert!(start.elapsed() < Duration::from_secs(60), "retry timed out");
+            let tick = server.world().tick_count() < target;
+            pump(&mut g, &mut server, tick);
+        }
+        assert!(
+            g.message
+                .as_ref()
+                .is_some_and(|(m, _)| m.contains("OCCUPIED")),
+            "{:?}",
+            g.message
+        );
         assert!(g.net_status().unwrap().contains("PLAYER 1"));
         // выход в главное меню — отключение
         g.screen = Screen::MainMenu;

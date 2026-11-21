@@ -114,7 +114,10 @@ fn server_and_three_clients_stay_identical() {
             let max = if i == 2 { 3 } else { usize::MAX };
             if let Some(w) = w {
                 let (_, events) = c.advance(&reg, w, max);
-                assert!(events.is_empty(), "client {i}: {events:?}");
+                assert!(
+                    events.iter().all(|e| matches!(e, ClientEvent::Results(_))),
+                    "client {i}: {events:?}"
+                );
             }
         }
         if step % 60 == 0 {
@@ -124,7 +127,7 @@ fn server_and_three_clients_stay_identical() {
     // дать отставшему дорассчитать
     for (c, w) in &mut clients {
         let (_, events) = c.advance(&reg, w.as_mut().unwrap(), usize::MAX);
-        assert!(events.is_empty());
+        assert!(events.iter().all(|e| matches!(e, ClientEvent::Results(_))));
     }
     let h = state_hash(server.world());
     assert_eq!(server.players(), 3);
@@ -219,6 +222,7 @@ fn desync_is_detected_and_recovered_from_a_snapshot() {
                     assert!(desync.is_none(), "reported once");
                     desync = Some(tick);
                 }
+                ClientEvent::Results(_) => {}
                 other => panic!("{other:?}"),
             }
         }
@@ -261,4 +265,61 @@ fn misbehaving_clients_are_dropped() {
     assert!(matches!(&ev[0], ServerEvent::Misbehaved(why) if why.contains("9999")));
     assert!(matches!(&ev[1], ServerEvent::Left(_)));
     assert_eq!(server.players(), 0);
+}
+
+#[test]
+fn each_player_learns_the_results_of_their_own_commands() {
+    let reg = ContentRegistry::base().unwrap();
+    let mut server: Server<MemLink> = Server::new(world(&reg), ServerConfig::default());
+    let mut clients = Vec::new();
+    for name in ["a", "b"] {
+        let (s, c) = mem_pair();
+        server.accept(s);
+        clients.push((Client::connect(c, &reg, name).unwrap(), None::<World>));
+    }
+    server.poll(&reg);
+    for (c, w) in &mut clients {
+        if let Some(ClientEvent::Joined(_, snap)) = c.poll(&reg).pop() {
+            *w = Some(*snap);
+        }
+    }
+    // оба ставят стену на одну клетку в одном тике: первый — успех, второй — «занято»
+    let wall = reg.block_by_name("iron_wall").unwrap();
+    let place = Command::Place {
+        block: wall,
+        origin: TilePos::new(20, 20),
+        rot: Dir::Right,
+    };
+    clients[0].0.send(place.clone()).unwrap();
+    clients[1].0.send(place).unwrap();
+    // и второй — ещё одну, которая встанет
+    clients[1]
+        .0
+        .send(Command::Place {
+            block: wall,
+            origin: TilePos::new(22, 20),
+            rot: Dir::Right,
+        })
+        .unwrap();
+    server.poll(&reg);
+    server.tick(&reg);
+    let mut results = Vec::new();
+    for (c, w) in &mut clients {
+        c.poll(&reg);
+        let (_, ev) = c.advance(&reg, w.as_mut().unwrap(), usize::MAX);
+        let mine: Vec<_> = ev
+            .into_iter()
+            .filter_map(|e| match e {
+                ClientEvent::Results(r) => Some(r),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        results.push(mine);
+    }
+    assert_eq!(results[0], vec![Ok(())]);
+    assert_eq!(
+        results[1],
+        vec![Err(ferrustry_sim::CommandError::Occupied), Ok(())]
+    );
 }
