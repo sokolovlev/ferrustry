@@ -442,3 +442,28 @@ probably drops too). The same world without networking:
 Conclusion: for large bases in a real game, what matters is not only the tick's work but also how much memory it
 touches (data density, P-03/P-04, pays off twice here). Benchmark numbers are a lower bound. A measurement on the
 owner's PC will show how much of this is a VM property.
+
+### 2026-11-21 — the owner's PC: the "cold" tick, building, B7 (commit 053aad9)
+
+The owner's PC, Windows; the benchmark suite matches the i5-12400F measurement of 2026-11-20 within noise
+(B3-100k 269 vs 277 µs, B2-comb-100k 126 vs 128 µs). B7 results —
+`docs/benchmarks/results/2026-11-21-pc-b7-*.json`.
+
+| B3-100k | Owner's PC | VM |
+|---|---|---|
+| Ticks back to back | 222 µs | 290–320 µs |
+| **With a 33 ms pause between ticks** | **442 µs (×2.0)** | 740–790 µs (×2.5) |
+| A tick with a wall placed (back to back) | 337 µs (+115 µs) | ~400 µs (+100–120 µs) |
+
+| B7, B3-100k | Server frame: mean / p99 / worst | Network in the frame | Traffic per client | All joined |
+|---|---|---|---|---|
+| 8 clients | 0.71 / 2.25 / 3.43 ms | 0.15 ms | 0.86 KB/s | 0.90 s |
+| 32 clients | 1.09 / 2.82 / 4.62 ms | 0.48 ms | 1.75 KB/s | 1.89 s |
+
+- **The "cold" tick is not just a VM property**: on a desktop PC a megabase tick every 33 ms costs twice as much as
+  ticks back to back. In a real game the megabase is ~0.45 ms (1.3% of the budget), not 0.22 ms. Back-to-back
+  benchmarks remain handy for comparing versions, but the `--paced` mode shows the real cost.
+- The server frame with 8 players on the megabase is 0.7 ms, with 32 — 1.1 ms (3% of the budget); the worst
+  frame is 4.6 ms (14%).
+- Traffic is the same as on the VM: it doesn't depend on the hardware.
+- 32 players joining take 1.9 s, as on the VM: a snapshot per joining player (S6-03).
