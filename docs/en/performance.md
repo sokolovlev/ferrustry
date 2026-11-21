@@ -371,3 +371,17 @@ every frame, R-01). That is almost four times the 60 FPS target, so the GPU floo
 - The old rebuild: every node scanned all power buildings — a cost quadratic in their number.
 - The remaining ~230 µs on B3-100k is the cost of **any** building, even a wall (link caches reset by the
   topology epoch, etc.) — a separate task; it is 0.7% of the tick budget and only in ticks with building.
+
+### 2026-11-21 — checksums for multiplayer (S6-04)
+
+`examples/net_estimates.rs`, cloud VM:
+
+| | B3-10k | B3-100k | B5-1000 |
+|---|---|---|---|
+| `state_hash` (full): was FNV over the bytes of a buffer → now words straight from serialization | 2.4 → 2.1 ms | 28 → 19 ms | 0.35 → 0.31 ms |
+| Copying the world (`clone`) | 0.8 ms | 11.8 ms | 0.06 ms |
+| Rolling checksum: part per tick, mean / worst | 15 / 61 µs | **151 / 206 µs** | 3 / 19 µs |
+
+- The main cost of a full hash is walking the structures during serialization, not the hash itself; so neither a
+  fast hash nor hashing a copy in the background (a megabase copy takes 11.8 ms) removes the spike. The rolling
+  checksum splits the work over 150 ticks: no spike, the mean cost is ~0.5% of the tick budget.

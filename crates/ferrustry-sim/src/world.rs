@@ -331,6 +331,146 @@ const TIMER_SLOTS: usize = 256;
 pub const MAX_SEGMENT_TILES: usize = 32;
 
 impl World {
+    /// Часть `k` из `n` скользящей контрольной суммы состояния (D-20): за `n` подряд идущих
+    /// частей хешируется всё сохраняемое состояние, а одна часть стоит ~1/`n` полного хеша.
+    /// Сервер и клиенты в одинаковом тике хешируют одинаковую часть, поэтому у совпадающих
+    /// миров совпадают и части. Поля перечислены без `..`: новое поле мира не скомпилируется,
+    /// пока его не добавят сюда.
+    pub fn checksum_part(&self, k: u64, n: u64) -> u64 {
+        let mut p = crate::hash::PartHasher::new(k, n);
+        let World {
+            tick,
+            item_count,
+            grid,
+            buildings,
+            conveyors,
+            drills,
+            crafters,
+            generators,
+            depots,
+            nodes,
+            cores,
+            routers,
+            bridges,
+            batteries,
+            passive,
+            condensers,
+            engines,
+            fluids,
+            heat,
+            fluid_stats,
+            turrets,
+            units,
+            projectiles,
+            flow,
+            waves,
+            spawns,
+            outcome,
+            kills,
+            unit_grid: _,
+            drill_rows: _,
+            noise,
+            noise_acc,
+            flow_full_only: _,
+            flow_scratch: _,
+            unit_remap: _,
+            rules,
+            segments,
+            free_segments,
+            seg_awake,
+            no_sleep,
+            topo_epoch,
+            drill_awake,
+            timers,
+            power,
+            rng,
+            stats,
+        } = self;
+        p.whole(&(
+            tick, item_count, kills, noise, noise_acc, no_sleep, topo_epoch,
+        ));
+        p.whole(rules);
+        p.whole(rng);
+        p.whole(stats);
+        p.whole(waves);
+        p.whole(spawns);
+        p.whole(outcome);
+        p.whole(fluid_stats);
+        grid.hash_part(&mut p);
+        buildings.hash_part(&mut p);
+        conveyors.hash_part(&mut p);
+        drills.hash_part(&mut p);
+        crafters.hash_part(&mut p);
+        generators.hash_part(&mut p);
+        depots.hash_part(&mut p);
+        nodes.hash_part(&mut p);
+        cores.hash_part(&mut p);
+        routers.hash_part(&mut p);
+        bridges.hash_part(&mut p);
+        batteries.hash_part(&mut p);
+        passive.hash_part(&mut p);
+        condensers.hash_part(&mut p);
+        engines.hash_part(&mut p);
+        turrets.hash_part(&mut p);
+        let crate::thermal::Nets { nets, dirty } = fluids;
+        p.split(nets);
+        p.whole(dirty);
+        let crate::thermal::Nets { nets, dirty } = heat;
+        p.split(nets);
+        p.whole(dirty);
+        let crate::power::PowerState { nets, dirty, free } = power;
+        p.split(nets);
+        p.whole(&(dirty, free));
+        let crate::combat::Units {
+            kind,
+            x,
+            y,
+            health,
+            cooldown,
+            vx,
+            vy,
+            hold,
+            incoming,
+        } = units;
+        p.split(kind);
+        p.split(x);
+        p.split(y);
+        p.split(health);
+        p.split(cooldown);
+        p.split(vx);
+        p.split(vy);
+        p.split(hold);
+        p.split(incoming);
+        let crate::combat::Projectiles {
+            x,
+            y,
+            vx,
+            vy,
+            damage,
+            ttl,
+            hostile,
+            target,
+        } = projectiles;
+        p.split(x);
+        p.split(y);
+        p.split(vx);
+        p.split(vy);
+        p.split(damage);
+        p.split(ttl);
+        p.split(hostile);
+        p.split(target);
+        let crate::combat::FlowField { dist, dirty, full } = flow;
+        p.split(dist);
+        p.split(dirty);
+        p.whole(full);
+        segments.hash_part(&mut p);
+        p.split(free_segments);
+        p.split(seg_awake);
+        p.split(drill_awake);
+        p.split(timers);
+        p.finish()
+    }
+
     /// Создаёт пустой мир, залитый одним полом.
     pub fn new(reg: &ContentRegistry, width: u32, height: u32, floor: FloorId, seed: u64) -> Self {
         let items = reg.items().len();

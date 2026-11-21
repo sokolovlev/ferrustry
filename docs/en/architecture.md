@@ -192,7 +192,7 @@ zstd compression) for maps, saves and schematics; network packets are `postcard`
 | Conveyors | `ferrustry-sim/src/segment.rs`, `world.rs` | Segments ≤ 32 tiles with gaps, compressed-prefix cache, turns, loops, local rebuild that keeps items; packed `item<<16 \| gap` layout; sleeping (active bitset + waiter lists); link cache keyed by topology epoch |
 | Power | `ferrustry-sim/src/power.rs` | Union-find over touching buildings and node radius, satisfaction factor in thousandths |
 | Production | `world.rs` | Drills (share of ore under the drill), recipes, round-robin output around the perimeter |
-| Determinism | `hash.rs`, `rng.rs` | FNV-1a over the serialized state, xoshiro256** in the world state |
+| Determinism | `hash.rs`, `rng.rs` | A hash over 8-byte words straight from serialization (no buffer); a rolling checksum by parts for multiplayer, xoshiro256** in the world state |
 | Format | `ferrustry-format` | Container v1.0, zstd, CRC32, name table, integrity checks |
 | Headless | `ferrustry-headless` | `run`, `resume`, `save-check`, `bench` with a JSON report and an allocation counter |
 

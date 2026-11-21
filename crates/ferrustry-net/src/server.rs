@@ -1,9 +1,9 @@
 //! Сервер партии: принимает игроков и команды, считает мир, рассылает кадры и контрольные суммы.
 
 use ferrustry_content::ContentRegistry;
-use ferrustry_sim::{Command, CommandError, SIM_VERSION, TICKS_PER_SECOND, World, state_hash};
+use ferrustry_sim::{Command, CommandError, SIM_VERSION, TICKS_PER_SECOND, World};
 
-use crate::{ClientMsg, Link, PROTOCOL_VERSION, PlayerId, ServerMsg, decode, encode};
+use crate::{ClientMsg, Link, PROTOCOL_VERSION, PlayerId, Rolling, ServerMsg, decode, encode};
 
 /// Настройки сервера.
 #[derive(Debug, Clone)]
@@ -39,6 +39,8 @@ pub enum ServerEvent {
     Left(PlayerId),
     /// Клиент прислал непонятное или недопустимое сообщение (отключён).
     Misbehaved(String),
+    /// Клиент разошёлся с сервером и получил свежий снимок.
+    Resynced(PlayerId),
 }
 
 struct Peer<L> {
@@ -54,6 +56,7 @@ pub struct Server<L: Link> {
     pending: Vec<(PlayerId, Command)>,
     config: ServerConfig,
     next_player: PlayerId,
+    rolling: Rolling,
 }
 
 impl<L: Link> Server<L> {
@@ -63,6 +66,7 @@ impl<L: Link> Server<L> {
             world,
             peers: Vec::new(),
             pending: Vec::new(),
+            rolling: Rolling::new(config.checksum_every),
             config,
             next_player: 1,
         }
@@ -143,13 +147,25 @@ impl<L: Link> Server<L> {
                         };
                         let player = self.next_player;
                         self.next_player = self.next_player.wrapping_add(1).max(1);
-                        let welcome = ServerMsg::Welcome { player, snapshot };
+                        let welcome = ServerMsg::Welcome {
+                            player,
+                            checksum_every: self.config.checksum_every.max(1),
+                            snapshot,
+                        };
                         if self.peers[i].link.send(encode(&welcome)).is_err() {
                             self.peers[i].alive = false;
                             continue;
                         }
                         self.peers[i].player = Some(player);
                         events.push(ServerEvent::Joined { player, name });
+                    }
+                    Ok(ClientMsg::Resync) if self.peers[i].player.is_some() => {
+                        let sent = ferrustry_format::write_save(&self.world, reg)
+                            .map(|s| self.peers[i].link.send(encode(&ServerMsg::Snapshot(s))));
+                        match (sent, self.peers[i].player) {
+                            (Ok(Ok(())), Some(p)) => events.push(ServerEvent::Resynced(p)),
+                            _ => self.drop_peer(i, &mut events),
+                        }
                     }
                     Ok(ClientMsg::Command(cmd)) if self.peers[i].player.is_some() => {
                         match valid(reg, &cmd) {
@@ -196,15 +212,9 @@ impl<L: Link> Server<L> {
         let results = self.world.tick(reg, &cmds);
         let frame = encode(&ServerMsg::Frame { tick, commands });
         let check = self
-            .world
-            .tick_count()
-            .is_multiple_of(self.config.checksum_every.max(1))
-            .then(|| {
-                encode(&ServerMsg::Checksum {
-                    tick: self.world.tick_count(),
-                    hash: state_hash(&self.world),
-                })
-            });
+            .rolling
+            .after_tick(&self.world)
+            .map(|(tick, hash)| encode(&ServerMsg::Checksum { tick, hash }));
         for p in &mut self.peers {
             if !p.alive || p.player.is_none() {
                 continue;

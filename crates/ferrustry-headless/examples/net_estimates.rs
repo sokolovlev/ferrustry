@@ -28,6 +28,24 @@ fn measure(name: &str, reg: &ContentRegistry, mut w: World) {
     let read_ms = t.elapsed().as_secs_f64() * 1e3;
     assert_eq!(state_hash(&back), state_hash(&w));
 
+    let t = Instant::now();
+    let copy = w.clone();
+    let clone_us = t.elapsed().as_secs_f64() * 1e6;
+    drop(copy);
+    // скользящая контрольная сумма: 150 частей (5 с при 30 Hz), цена одной части за тик
+    let mut worst = 0.0f64;
+    let mut total = 0.0;
+    for k in 0..150 {
+        let t = Instant::now();
+        std::hint::black_box(w.checksum_part(k, 150));
+        let us = t.elapsed().as_secs_f64() * 1e6;
+        worst = worst.max(us);
+        total += us;
+    }
+    println!(
+        "{name:<8} world.clone(): {clone_us:6.0} us; rolling checksum part: mean {:5.0} us, worst {worst:5.0} us (all 150: {total:6.0} us)",
+        total / 150.0
+    );
     let mut prev = postcard::to_allocvec(&w).unwrap();
     let (mut ticks, mut changed, mut delta) = (0usize, 0usize, 0usize);
     let (mut ser_us, mut hash_us) = (0.0, 0.0);

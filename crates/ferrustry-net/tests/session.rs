@@ -127,7 +127,9 @@ fn server_and_three_clients_stay_identical() {
         let w = c.world().unwrap();
         assert_eq!(w.tick_count(), server.world().tick_count(), "client {i}");
         assert_eq!(state_hash(w), h, "client {i} diverged");
-        assert!(!c.desynced());
+        assert_eq!(c.resyncs(), 0, "client {i} never diverged");
+        // сверки шли: 2000 тиков по 60 — ~33 периода, у вошедшего позже меньше
+        assert!(c.verified() >= 20, "client {i} verified {}", c.verified());
     }
     // партия была содержательной: стройка прошла, бой был
     assert!(server.world().buildings().len() > 100);
@@ -175,7 +177,7 @@ fn incompatible_clients_are_rejected() {
 }
 
 #[test]
-fn desync_is_detected_at_the_next_checksum() {
+fn desync_is_detected_and_recovered_from_a_snapshot() {
     let reg = ContentRegistry::base().unwrap();
     let config = ServerConfig {
         checksum_every: 30,
@@ -190,17 +192,37 @@ fn desync_is_detected_at_the_next_checksum() {
     // «ошибка детерминизма»: клиент тайком получил предмет
     let ingot = reg.item_by_name("iron_ingot").unwrap();
     client.world_mut().unwrap().grant(&reg, ingot, 1);
-    let mut desync = None;
-    for _ in 0..40 {
+    let (mut desync, mut resynced, mut server_saw) = (None, None, false);
+    for _ in 0..200 {
+        for e in server.poll(&reg) {
+            server_saw |= matches!(e, ServerEvent::Resynced(_));
+        }
         server.tick(&reg);
-        client.poll(&reg);
+        for e in client.poll(&reg) {
+            if let ClientEvent::Resynced(t) = e {
+                resynced = Some(t);
+            }
+        }
         let (_, ev) = client.advance(&reg, usize::MAX);
-        if let Some(ClientEvent::Desync { tick, .. }) = ev.first() {
-            desync = Some(*tick);
+        for e in ev {
+            match e {
+                ClientEvent::Desync { tick, .. } => {
+                    assert!(desync.is_none(), "reported once");
+                    desync = Some(tick);
+                }
+                other => panic!("{other:?}"),
+            }
         }
     }
-    assert_eq!(desync, Some(30), "reported at the first checksum");
-    assert!(client.desynced());
+    // первый полный период — тики 30..59: расхождение замечено в его конце
+    assert_eq!(desync, Some(59));
+    assert!(server_saw);
+    assert!(resynced.is_some_and(|t| t >= 59), "{resynced:?}");
+    assert_eq!(client.resyncs(), 1);
+    // после снимка клиент снова идёт вровень с сервером
+    let w = client.world().unwrap();
+    assert_eq!(w.tick_count(), server.world().tick_count());
+    assert_eq!(state_hash(w), state_hash(server.world()));
 }
 
 #[test]

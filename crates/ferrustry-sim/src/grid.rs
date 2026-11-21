@@ -27,6 +27,17 @@ pub struct Grid {
 }
 
 impl Grid {
+    pub(crate) fn hash_part(&self, p: &mut crate::hash::PartHasher) {
+        let Self {
+            width,
+            height,
+            chunks_x,
+            chunks,
+        } = self;
+        p.whole(&(width, height, chunks_x));
+        p.split(chunks);
+    }
+
     /// Максимальная сторона карты в тайлах.
     pub const MAX_SIDE: u32 = 8192;
 

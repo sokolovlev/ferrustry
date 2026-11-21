@@ -172,6 +172,12 @@ pub struct Arena {
 }
 
 impl Arena {
+    pub(crate) fn hash_part(&self, p: &mut crate::hash::PartHasher) {
+        let Self { slots, free } = self;
+        p.split(slots);
+        p.split(free);
+    }
+
     pub(crate) fn insert(&mut self, b: Building) -> BuildingId {
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
@@ -271,6 +277,14 @@ impl Arena {
 pub(crate) struct Table<T> {
     pub(crate) rows: Vec<T>,
     pub(crate) owners: Vec<BuildingId>,
+}
+
+impl<T: Serialize> Table<T> {
+    pub(crate) fn hash_part(&self, p: &mut crate::hash::PartHasher) {
+        let Self { rows, owners } = self;
+        p.split(rows);
+        p.split(owners);
+    }
 }
 
 impl<T> Default for Table<T> {

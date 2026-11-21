@@ -42,7 +42,8 @@ Conclusions:
 - Command relay doesn't depend on base size and fits in a fraction of a kilobyte per second.
 - A snapshot for joining is acceptable even for a megabase (1.6 MB, read in 62 ms).
 - `state_hash` is too expensive for frequent checks (28 ms on the megabase): we need a cheap checksum
-  (task S6-04).
+  (task S6-04). **Solved** with a rolling checksum: 151 µs per tick on average on the megabase, 206 µs in the
+  worst tick (~0.6% of the budget) instead of a 28 ms spike every 5 s (section 6).
 
 ## 3. The proposed model (D-18 — D-22)
 
@@ -92,4 +93,5 @@ thousands of ticks.
 |---|---|
 | S6-01 protocol | **Done** (2026-11-20) without a chunked snapshot: `ferrustry-net` — messages `Hello`/`Command` and `Welcome`/`Reject`/`Frame`/`Checksum` (postcard), the protocol version, the simulation version and a **content fingerprint** (`ContentRegistry::fingerprint` — names and numbers: mods with different numbers won't join), id checks in commands, a message size limit, an in-memory channel |
 | S6-02 session | **Done** (2026-11-20): `Server` (joining, frames, checksums, dropping misbehaving clients), `Client` (snapshot, simulating by frames, checking). Test: a server and 3 clients over 2000 ticks with building and combat, the third joins a running game and catches up in batches — the state matches bit for bit for everyone; incompatible clients and a full server are rejected; tampering with a client's state is caught at the first check |
-| S6-03 — S6-05 | Ahead: a background chunked snapshot, a fast checksum and recovery, a network transport, a dedicated server, connecting from the game |
+| S6-04 checks | **Done** (2026-11-21): a rolling checksum — after every tick part `t % 150` of the world is hashed (`World::checksum_part`), the whole state every 5 s. The canonical representation (as in a save) is hashed, so a client that joined through a snapshot matches the server even though its internal memory layout differs (the test fails if the layout is hashed). On a mismatch the client requests a snapshot itself, doesn't simulate until it arrives, and continues from it |
+| S6-03, S6-05 | Ahead: a background chunked snapshot, a network transport, a dedicated server, connecting from the game |

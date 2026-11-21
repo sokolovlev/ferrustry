@@ -678,6 +678,19 @@ pub struct Segments {
     holes: usize,
 }
 
+impl Segments {
+    /// Только каноническое представление (как в сохранении): раскладка пула после загрузки
+    /// снимка другая, а состояние то же.
+    pub(crate) fn hash_part(&self, p: &mut crate::hash::PartHasher) {
+        let Self {
+            list,
+            pool: _,
+            holes: _,
+        } = self;
+        p.split_map(list, |o| o.as_ref().map(|seg| self.view(seg).repr()));
+    }
+}
+
 /// Уплотнять пул, когда дыр больше четверти и больше этого числа ячеек.
 const COMPACT_MIN_HOLES: usize = 4096;
 

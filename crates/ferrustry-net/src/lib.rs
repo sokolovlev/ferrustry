@@ -20,7 +20,7 @@ pub use client::{Client, ClientEvent};
 pub use server::{Server, ServerConfig, ServerEvent};
 
 /// Версия протокола: несовпадение — понятный отказ при подключении.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Предел размера одного сообщения (снимок мегабазы — ~1,6 МБ).
 pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
@@ -44,6 +44,8 @@ pub enum ClientMsg {
     },
     /// Команда игрока.
     Command(Command),
+    /// Состояние разошлось с сервером: прислать свежий снимок (D-20).
+    Resync,
 }
 
 /// Сообщение сервера клиенту.
@@ -53,9 +55,13 @@ pub enum ServerMsg {
     Welcome {
         /// Номер игрока.
         player: PlayerId,
+        /// Период скользящей контрольной суммы, в тиках.
+        checksum_every: u64,
         /// Снимок мира.
         snapshot: Vec<u8>,
     },
+    /// Свежий снимок мира в ответ на `Resync`; кадры с его тика идут следом.
+    Snapshot(Vec<u8>),
     /// Отказ (причина — для показа игроку).
     Reject(String),
     /// Кадр: команды тика `tick` (тик ещё не рассчитан; кадр приходит каждый тик, даже пустой).
@@ -65,13 +71,55 @@ pub enum ServerMsg {
         /// Команды тика в порядке, назначенном сервером.
         commands: Vec<(PlayerId, Command)>,
     },
-    /// Контрольная сумма состояния после `tick` тиков.
+    /// Скользящая контрольная сумма за период, закончившийся на `tick` тиках ([`Rolling`]).
     Checksum {
         /// `World::tick_count` после расчёта.
         tick: u64,
         /// Хеш состояния.
         hash: u64,
     },
+}
+
+/// Скользящая контрольная сумма (D-20): после каждого тика хешируется часть `t % n` мира
+/// (`World::checksum_part`), за период из `n` тиков — всё состояние. Сервер и клиент считают её
+/// одинаково; период, начатый не с первой части (клиент вошёл посреди), не учитывается.
+#[derive(Debug, Clone)]
+pub struct Rolling {
+    n: u64,
+    acc: u64,
+    valid: bool,
+}
+
+impl Rolling {
+    /// Сумма с периодом `n` тиков.
+    pub fn new(n: u64) -> Self {
+        Self {
+            n: n.max(1),
+            acc: 0,
+            valid: false,
+        }
+    }
+
+    /// Учесть мир после тика; в конце полного периода — `(тик, сумма)`.
+    pub fn after_tick(&mut self, world: &ferrustry_sim::World) -> Option<(u64, u64)> {
+        let t = world.tick_count();
+        let k = t % self.n;
+        if k == 0 {
+            self.acc = 0x9E37_79B9_7F4A_7C15;
+            self.valid = true;
+        }
+        if !self.valid {
+            return None;
+        }
+        let part = world.checksum_part(k, self.n);
+        self.acc = (self.acc.rotate_left(5) ^ part).wrapping_mul(0x517C_C1B7_2722_0A95);
+        (k == self.n - 1).then_some((t, self.acc))
+    }
+
+    /// Начать заново (после загрузки снимка).
+    pub fn reset(&mut self) {
+        self.valid = false;
+    }
 }
 
 /// Ошибка сети.
