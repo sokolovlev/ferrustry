@@ -124,6 +124,11 @@ fn run() -> Result<(), String> {
         None => scenario::demo_map(&reg, o.seed).map_err(|e| e.to_string())?,
     };
     let mut game = Game::new(reg, world, [o.size[0] as f32, o.size[1] as f32]);
+    if let Ok(text) = std::fs::read_to_string(Game::campaign_file())
+        && let Ok(done) = text.trim().parse::<usize>()
+    {
+        game.set_campaign_progress(done);
+    }
     if let Ok(text) = std::fs::read_to_string(Game::server_file()) {
         let mut lines = text.lines();
         let (addr, name) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""));

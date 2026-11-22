@@ -19,14 +19,14 @@ xdotool windowmove "$WID" 0 0; xdotool windowfocus "$WID" || true; sleep 0.5
 click() { xdotool mousemove "$1" "$2"; sleep 0.3; xdotool mousedown 1; sleep 0.15; xdotool mouseup 1; sleep 0.5; }
 shot() { xwd -root -silent | convert xwd:- "$OUT/$1.png" 2>/dev/null || true; }
 shot e2e-menu
-click 640 375                     # MAPS (2-я кнопка главного меню)
+click 640 429                     # MAPS (3-я кнопка главного меню)
 shot e2e-maps
 click 322 670                     # NEW MAP (Game::maps_layout: 4 кнопки по 200+12 px внизу)
 click 561 684                     # SAVE (Game::editor_layout: 6 кнопок по 150+8 px внизу)
 shot e2e-editor
 if [ ! -s maps/map-001.fmap ]; then echo "FAIL: map editor did not save maps/map-001.fmap"; kill $APP; exit 1; fi
 click 1035 684                    # BACK
-click 640 311                     # NEW GAME
+click 640 301                     # NEW GAME
 shot e2e-newgame
 click 640 504                     # START (Game::new_game_layout)
 sleep 1

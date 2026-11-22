@@ -226,6 +226,11 @@ impl App {
                 }
                 self.game.map_saved(res);
             }
+            Request::SaveCampaign(done) => {
+                if let Err(e) = std::fs::write(Game::campaign_file(), format!("{done}\n")) {
+                    eprintln!("ferrustry: cannot save campaign progress: {e}");
+                }
+            }
             Request::RememberServer { addr, name } => {
                 if let Err(e) = std::fs::write(Game::server_file(), format!("{addr}\n{name}\n")) {
                     eprintln!("ferrustry: cannot remember the server: {e}");

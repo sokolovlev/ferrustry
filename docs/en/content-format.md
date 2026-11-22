@@ -151,6 +151,30 @@ of the cost of `of` (rounded up), **removal** returns `salvage_percent` % of the
 down). Ruins are placed by the map generator and the editor; a build command in a normal game cannot place
 a ruin. Without the `ruins` section — 30 % and 50 %; values above 100 are a load error.
 
+## Campaign
+
+A separate file `crates/ferrustry-content/data/campaign.ron`:
+
+```ron
+(
+    starting: ["conveyor", "bore", ...],          // available from the start
+    sectors: [
+        (
+            id: "landing",                            // for progress, unique
+            title: "ASHFALL LANDING",                 // UI: capitals, up to 30 characters
+            brief: "SET UP IRON PRODUCTION ...",      // one line, up to 52 characters
+            map: (size: Small, difficulty: Easy, seed: 101),   // the map generator
+            objectives: [Make(item: "iron_ingot", amount: 150), SurviveWaves(3)],
+            unlocks: ["steel_forge", ...],            // unlocked by winning
+        ),
+    ],
+)
+```
+
+Objectives: `SurviveWaves(n)`, `Make(item, amount)` (mined by bores and made by recipes), `Repair(n)` (ruins).
+Unknown names, ruins in building lists, zero objectives and repeated `id`s are load errors with a path. A test
+requires the campaign to unlock every building of the game (except the core and ruins).
+
 ## What needs code
 
 A new behaviour **kind** (a new `kind` variant) means changes to `ferrustry-content` (schema and validation)

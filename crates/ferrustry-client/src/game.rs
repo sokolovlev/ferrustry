@@ -13,6 +13,7 @@ use ferrustry_sim::{Command, CommandError, Detail, Dir, TICKS_PER_SECOND, TilePo
 
 use crate::ui::{Rect, Ui, text_width};
 
+mod campaign;
 mod editor;
 mod join;
 mod maps;
@@ -128,6 +129,8 @@ pub enum Screen {
     Connecting,
     /// Ввод адреса сервера.
     Join,
+    /// Кампания: выбор сектора.
+    Campaign,
 }
 
 /// Внешний запрос к окну/файловой системе, который игра не выполняет сама.
@@ -152,6 +155,8 @@ pub enum Request {
     },
     /// Прочитать список карт.
     ListMaps,
+    /// Сохранить прогресс кампании (число пройденных секторов).
+    SaveCampaign(usize),
     /// Запомнить сервер и имя для следующего подключения.
     RememberServer {
         /// Адрес.
@@ -254,6 +259,9 @@ pub struct Game {
     join: join::JoinForm,
     /// Кнопка ремонта в инспекторе руины (последний кадр; для тестов).
     repair_button: Option<Rect>,
+    campaign: Option<ferrustry_content::campaign::Campaign>,
+    campaign_done: usize,
+    mission: Option<campaign::Mission>,
 }
 
 /// Скользящий счётчик частоты.
@@ -293,6 +301,7 @@ impl Game {
             .filter(|(_, v)| !v.is_empty())
             .collect();
         let hotbar = categories.first().map(|c| c.1.clone()).unwrap_or_default();
+        let campaign = ferrustry_content::campaign::Campaign::base(&reg).ok();
         let center = [
             world.grid().width() as f32 / 2.0,
             world.grid().height() as f32 / 2.0,
@@ -336,6 +345,9 @@ impl Game {
             net: None,
             join: join::JoinForm::default(),
             repair_button: None,
+            campaign,
+            campaign_done: 0,
+            mission: None,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -410,6 +422,8 @@ impl Game {
         match world {
             Some(w) => {
                 self.world = w;
+                self.mission = None;
+                self.set_unlocked(None);
                 self.drag = None;
                 self.pending.clear();
                 self.last_wave = self
@@ -437,6 +451,9 @@ impl Game {
 
     /// Начать партию на готовом мире (новая игра, карта из редактора).
     fn begin_play(&mut self, w: World) {
+        // обычная партия: без целей сектора, все постройки (сектор поставит свои после)
+        self.mission = None;
+        self.set_unlocked(None);
         self.world = w;
         self.camera.center = [
             self.world.grid().width() as f32 / 2.0,
@@ -605,7 +622,8 @@ impl Game {
             (Screen::Join, Key::Enter) => self.join_connect(),
             (Screen::Join, Key::Backspace) => self.join.backspace(),
             (Screen::Join, Key::NextCategory) => self.join.focus = 1 - self.join.focus,
-            (Screen::Join | Screen::Connecting, _) => {}
+            (Screen::Campaign, Key::Cancel) => self.screen = Screen::MainMenu,
+            (Screen::Join | Screen::Connecting | Screen::Campaign, _) => {}
             (Screen::PauseMenu, Key::Cancel) => self.screen = Screen::Playing,
             (Screen::Playing, Key::Cancel) => {
                 if self.show_help {
@@ -837,7 +855,8 @@ impl Game {
             | Screen::Editor
             | Screen::Maps
             | Screen::Connecting
-            | Screen::Join => false,
+            | Screen::Join
+            | Screen::Campaign => false,
         };
         if self.net.is_some() {
             // сетевая партия: мир идёт по кадрам сервера на любом экране игры
@@ -858,6 +877,9 @@ impl Game {
             }
         }
         self.tps.tick(dt, ticks);
+        if self.net.is_none() && ticks > 0 {
+            self.campaign_tick();
+        }
         if self.screen == Screen::Playing
             && let Some((next, _)) = self.world.wave_info(&self.reg)
         {
@@ -968,6 +990,7 @@ impl Game {
             Screen::Maps => self.maps_screen(&mut ui, atlas, table, hud),
             Screen::Connecting => self.connecting_screen(&mut ui, atlas, table, hud),
             Screen::Join => self.join_screen(&mut ui, atlas, table, hud),
+            Screen::Campaign => self.campaign_screen(&mut ui, atlas, table, hud),
             Screen::Playing => self.play_hud(&mut ui, atlas, table, hud),
             Screen::PauseMenu => {
                 self.play_hud(&mut ui, atlas, table, hud);
@@ -978,6 +1001,9 @@ impl Game {
             && let Outcome::Lost { .. } = self.world.outcome()
         {
             self.game_over(&mut ui, atlas, table, hud);
+        }
+        if self.screen == Screen::Playing {
+            self.victory_screen(&mut ui, atlas, table, hud);
         }
         self.toast(atlas, table, hud);
         ui.end();
@@ -1045,28 +1071,31 @@ impl Game {
             rgba(palette::TITANIUM),
         );
 
-        let r = self.menu_rects(5, ty + 170.0 * u);
+        let r = self.menu_rects(6, ty + 160.0 * u);
         if ui.button(hud, atlas, white, r[0], "NEW GAME", 3.0 * u, true) {
             self.screen = Screen::NewGame;
         }
-        if ui.button(hud, atlas, white, r[1], "MAPS", 3.0 * u, true) {
+        if ui.button(hud, atlas, white, r[1], "CAMPAIGN", 3.0 * u, true) {
+            self.open_campaign();
+        }
+        if ui.button(hud, atlas, white, r[2], "MAPS", 3.0 * u, true) {
             self.open_maps();
         }
-        if ui.button(hud, atlas, white, r[2], "JOIN", 3.0 * u, true) {
+        if ui.button(hud, atlas, white, r[3], "JOIN", 3.0 * u, true) {
             self.open_join();
         }
         if ui.button(
             hud,
             atlas,
             white,
-            r[3],
+            r[4],
             "CONTINUE",
             3.0 * u,
             self.quicksave_exists,
         ) {
             self.requests.push(Request::Load);
         }
-        if ui.button(hud, atlas, white, r[4], "QUIT", 3.0 * u, true) {
+        if ui.button(hud, atlas, white, r[5], "QUIT", 3.0 * u, true) {
             self.requests.push(Request::Quit);
         }
         let ver = concat!("V", env!("CARGO_PKG_VERSION"), "  EARLY PROTOTYPE");
@@ -1533,6 +1562,7 @@ impl Game {
         }
 
         self.inspector(ui, atlas, table, hud);
+        self.objectives_panel(ui, atlas, table, hud);
 
         if self.show_help {
             let lines = [
@@ -2031,7 +2061,7 @@ mod tests {
     fn map_editor_from_the_main_menu_to_play() {
         let (mut g, mut e) = (game(), env());
         frame(&mut g, &mut e);
-        let maps = g.menu_rects(5, 720.0 * 0.16 + 170.0)[1];
+        let maps = g.menu_rects(6, 720.0 * 0.16 + 160.0)[2];
         click(&mut g, &mut e, center(maps));
         assert_eq!(g.screen(), Screen::Maps);
         assert_eq!(g.take_requests(), vec![Request::ListMaps]);
@@ -2068,7 +2098,7 @@ mod tests {
     fn join_screen_types_an_address_and_connects() {
         let (mut g, mut e) = (game(), env());
         frame(&mut g, &mut e);
-        let join = g.menu_rects(5, 720.0 * 0.16 + 170.0)[2];
+        let join = g.menu_rects(6, 720.0 * 0.16 + 160.0)[3];
         click(&mut g, &mut e, center(join));
         assert_eq!(g.screen(), Screen::Join);
         // стереть адрес по умолчанию и набрать свой
@@ -2144,12 +2174,78 @@ mod tests {
         );
     }
 
+    #[test]
+    fn campaign_from_the_menu_limits_buildings_to_unlocked() {
+        let (mut g, mut e) = (game(), env());
+        frame(&mut g, &mut e);
+        let campaign = g.menu_rects(6, 720.0 * 0.16 + 160.0)[1];
+        click(&mut g, &mut e, center(campaign));
+        assert_eq!(g.screen(), Screen::Campaign);
+        assert!(g.campaign().is_some_and(|c| c.sectors.len() >= 3));
+        let l = g.campaign_layout();
+        // второй сектор закрыт, пока не пройден первый
+        click(&mut g, &mut e, center(l.rows[1].1));
+        assert_eq!(g.screen(), Screen::Campaign);
+        click(&mut g, &mut e, center(l.rows[0].1));
+        assert_eq!(g.screen(), Screen::Playing);
+        let forge = g.reg.block_by_name("steel_forge").unwrap();
+        let bore = g.reg.block_by_name("bore").unwrap();
+        let offered: Vec<BlockId> = g.categories.iter().flat_map(|c| c.1.clone()).collect();
+        assert!(offered.contains(&bore));
+        assert!(
+            !offered.contains(&forge),
+            "the forge unlocks after sector 1"
+        );
+        // обычная игра — снова все постройки
+        g.new_game();
+        let offered: Vec<BlockId> = g.categories.iter().flat_map(|c| c.1.clone()).collect();
+        assert!(offered.contains(&forge));
+        assert!(g.mission.is_none());
+    }
+
+    #[test]
+    fn winning_a_sector_saves_progress_and_opens_the_next() {
+        let (mut g, mut e) = (game(), env());
+        // сектор с одной целью — отремонтировать руину
+        let text = ferrustry_content::campaign::BASE_CAMPAIGN.replacen(
+            "objectives: [Make(item: \"iron_ingot\", amount: 150), SurviveWaves(3)]",
+            "objectives: [Repair(1)]",
+            1,
+        );
+        g.campaign = Some(ferrustry_content::campaign::Campaign::from_ron(&g.reg, &text).unwrap());
+        g.start_sector(1);
+        assert!(g.mission.is_none(), "sector 2 is locked");
+        g.start_sector(0);
+        assert!(g.mission.is_some());
+        let ruin = g
+            .world
+            .buildings()
+            .iter()
+            .find(|(_, b)| b.tag == ferrustry_sim::KindTag::Ruin)
+            .map(|(_, b)| b.origin)
+            .unwrap();
+        g.queue(vec![Command::Repair { at: ruin }]);
+        g.update(0.1);
+        assert!(g.mission.is_some_and(|m| m.won && m.victory_open));
+        assert!(g.paused);
+        assert!(g.take_requests().contains(&Request::SaveCampaign(1)));
+        frame(&mut g, &mut e);
+        let [to_campaign, _] = g.victory_buttons();
+        click(&mut g, &mut e, center(to_campaign));
+        assert_eq!(g.screen(), Screen::Campaign);
+        g.start_sector(1);
+        assert!(
+            g.mission.is_some_and(|m| m.index == 1),
+            "sector 2 is open now"
+        );
+    }
+
     fn playing() -> (Game, Env) {
         let (mut g, mut e) = (game(), env());
         frame(&mut g, &mut e);
         // «NEW GAME» — первая кнопка главного меню
         let ty = 720.0 * 0.16;
-        let new_game = g.menu_rects(3, ty + 170.0)[0];
+        let new_game = g.menu_rects(6, ty + 160.0)[0];
         click(&mut g, &mut e, center(new_game));
         assert_eq!(g.screen(), Screen::NewGame);
         let (_, _, _, start, _) = g.new_game_layout();

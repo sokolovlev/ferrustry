@@ -9,7 +9,7 @@ is **not a goal**.
 | Format | Purpose | Status | Versioning policy |
 |---|---|---|---|
 | Map (`.fmap`) | Terrain, ore, starting buildings, spawn points, rules, starting stock | **Implemented** (2026-11-20, format 1.0): content by **name** (only the names used), its own version independent of saves, checks for sizes, indices and spawn points; map editor in the client, `map-gen`/`map-check` in headless | Read all later versions of the format ≥ 1.0 |
-| Save (`.fsave`) | Full simulation state | **Partial** (format 8.0 since 2026-11-20 — local power network rebuilds, free net ids; 7.x and older files are rejected with a version error — no migrations before release): container v1.0, round-trip and continuation with the same hash are tested; content ID remapping and migrations are not implemented (a file with different content is rejected) | Read saves of the previous minor game version; migrations |
+| Save (`.fsave`) | Full simulation state | **Partial** (format 9.0 since 2026-11-22 — "made" and repair counters for campaign objectives; 8.x and older files are rejected with a version error — no migrations before release): container v1.0, round-trip and continuation with the same hash are tested; content ID remapping and migrations are not implemented (a file with different content is rejected) | Read saves of the previous minor game version; migrations |
 | Schematic (`.fschem`, + a base64 text string) | A build fragment to copy | **Implemented** (without the text string): buildings by content **name**, bounds checking; since 2026-11-20 its own format version 1.0 (files written earlier with the save version 2.x–7.x still load) | Always backward compatible; an unknown building is a clear error |
 | Content (RON) | Resources, blocks, units, recipes | **Implemented**: items, fluids, floors, ores, 21 building kinds, enemies and wave composition ([format](content-format.md)) | The schema is versioned, validator |
 | Network protocol | Client ↔ server | **Implemented** (2026-11-22, protocol 3 — the ruin repair command): command relay (D-18), UDP via renet, game version and content fingerprint checked on connect | Exact `protocol_version` match |
@@ -25,7 +25,7 @@ flags      : u32      (compression etc.)
 sections   : [ { id: u32, len: u64, crc32: u32, data } ]   # section data is zstd compressed
 ```
 
-- The version in the header is per file kind: saves and replays use the save version (8.0), maps and
+- The version in the header is per file kind: saves and replays use the save version (9.0), maps and
   schematics their own (1.0), because they store content by name and don't depend on the simulation's structures.
 - Implemented sections: `1` — content name table, `2` — world state (postcard).
   The file is checked by the CRC32 of each section, a 512 MiB decompression limit and the world's structural integrity.

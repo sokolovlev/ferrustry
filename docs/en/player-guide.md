@@ -15,6 +15,23 @@ cargo run --release -p ferrustry-client
 You need a CPU with AVX2 (x86_64) or Apple Silicon and a GPU with Vulkan, DirectX 12 or Metal.
 On Linux, the `libvulkan1` and `libxkbcommon-x11-0` packages.
 
+## Campaign
+
+**CAMPAIGN** in the main menu is a chain of sectors. Each sector is a map with its own objectives; winning opens
+the next sector and new buildings. At the start only belts, the splitter, the bore, the smelter, the wind
+turbine, the power node, the gun turret and the wall are available.
+
+| Sector | Objectives | Unlocks |
+|---|---|---|
+| 1. ASHFALL LANDING (small map, easy) | make 150 iron ingots, survive 3 waves | steel forge, radiator, heat pipe, sorter, overflow gate, bridge |
+| 2. BROKEN FOUNDRY (medium, normal) | repair 3 ruins, make 40 steel, survive 6 waves | arc tower, battery, burner, depot, pipes, condenser, cooling tower |
+| 3. THE LONG NIGHT (large, hard) | survive 12 waves | heat engine |
+
+Objectives and progress are in the bottom-left corner. "Make" counts only what bores mined and furnaces made —
+refunds from removing buildings don't count. A wave is survived when its enemies are dead or the next one has
+arrived. When all objectives are done, the game pauses: **CAMPAIGN** returns to sector selection, **KEEP
+PLAYING** continues. A finished sector can be replayed. Progress is stored in `ferrustry-campaign.txt`.
+
 ## New game
 
 **NEW GAME** opens the settings:

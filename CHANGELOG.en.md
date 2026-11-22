@@ -7,7 +7,12 @@ saves are incompatible between minor versions (the game reports a format version
 
 ## Unreleased
 
+Save format 9.0.
+
 ### Added
+- **Campaign** (CAMPAIGN in the main menu): 3 sectors with objectives (make items, repair ruins, survive
+  waves); winning opens the next sector and new buildings — only the basic ones are available at the start.
+  Objectives and progress in the corner of the screen; campaign progress is saved.
 - **Ruins** (D-01 "Reforge"): maps have broken outposts (smelters, wind turbines, bores, forges, turrets).
   Repair costs 30% of the price and the building works; salvage gives 50% of the price to the core. Click a ruin
   for a card with a REPAIR button. Multiplayer protocol 3.

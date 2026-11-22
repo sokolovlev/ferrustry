@@ -7,6 +7,7 @@
 
 pub mod balance;
 pub mod buildings;
+pub mod campaign;
 pub mod combat;
 pub mod geom;
 pub mod grid;

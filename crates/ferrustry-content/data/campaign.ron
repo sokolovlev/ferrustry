@@ -1,0 +1,36 @@
+// Кампания (этап 7): сектора по порядку. Победа в секторе открывает следующий и постройки
+// из `unlocks`. Тексты — для интерфейса (заглавные, английский: шрифт интерфейса — латиница).
+// Цели: SurviveWaves(n) — пережить n волн; Make(item, amount) — добыть/сделать рецептами
+// (возврат стоимости при сносе не считается); Repair(n) — отремонтировать n руин.
+(
+    starting: [
+        "conveyor", "splitter", "bore", "smelter", "wind_turbine", "power_node",
+        "gun_turret", "iron_wall",
+    ],
+    sectors: [
+        (
+            id: "landing",
+            title: "ASHFALL LANDING",
+            brief: "SET UP IRON PRODUCTION AND HOLD THE FIRST WAVES.",
+            map: (size: Small, difficulty: Easy, seed: 101),
+            objectives: [Make(item: "iron_ingot", amount: 150), SurviveWaves(3)],
+            unlocks: ["steel_forge", "radiator", "heat_pipe", "sorter", "overflow_gate", "bridge_conveyor"],
+        ),
+        (
+            id: "foundry",
+            title: "BROKEN FOUNDRY",
+            brief: "REPAIR OUTPOSTS, START STEEL, HOLD THE CORE.",
+            map: (size: Medium, difficulty: Normal, seed: 202),
+            objectives: [Repair(3), Make(item: "steel", amount: 40), SurviveWaves(6)],
+            unlocks: ["arc_tower", "battery", "burner", "depot", "pipe", "condenser", "cooling_tower"],
+        ),
+        (
+            id: "long_night",
+            title: "THE LONG NIGHT",
+            brief: "THE SWARM IS AWAKE. HOLD TWELVE WAVES.",
+            map: (size: Large, difficulty: Hard, seed: 303),
+            objectives: [SurviveWaves(12)],
+            unlocks: ["heat_engine"],
+        ),
+    ],
+)

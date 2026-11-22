@@ -19,7 +19,7 @@ WID=$(xdotool search --name Ferrustry | head -1)
 xdotool windowmove "$WID" 0 0; xdotool windowfocus "$WID" || true; sleep 0.5
 click() { xdotool mousemove "$1" "$2"; sleep 0.3; xdotool mousedown 1; sleep 0.15; xdotool mouseup 1; sleep 0.5; }
 shot() { xwd -root -silent | convert xwd:- "$OUT/$1.png" 2>/dev/null || true; }
-click 640 439                     # JOIN (3-я кнопка главного меню)
+click 640 493                     # JOIN (4-я кнопка главного меню)
 for _ in $(seq 1 12); do xdotool key BackSpace; done
 xdotool type --delay 40 "127.0.0.1:$PORT"
 xdotool key Tab

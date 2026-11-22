@@ -387,3 +387,12 @@ The report is Markdown in two languages; snapshots live in `docs/balance/` with 
 | Generator | Outposts by map size (3/5/8): a smelter with wind turbines, a forge with a smelter, a bore on an ore patch, a pair of turrets; at least 16 tiles from the centre and 6 from spawn points |
 | Look | A ruin's sprite is built from the original's: desaturated, darker, cracks, chipped edges |
 | Network | Protocol 3 (a new command) |
+
+## 27. Campaign (stage 7, 2026-11-22)
+
+| Part | What it is |
+|---|---|
+| Data | `data/campaign.ron` → `ferrustry_content::campaign::Campaign`: starting buildings, sectors (map — generator settings, objectives, unlocks); names checked, errors with paths |
+| Objectives | `ferrustry_sim::campaign::progress` — from the world state: `Stats::made` (mined and made, no refunds), `Stats::repaired`, survived waves (arrived ones, except the current one while its enemies live). Deterministic — fit for a future multiplayer campaign |
+| Client | The CAMPAIGN screen, starting a sector (`sector_world`), the build panel with unlocked buildings only, objectives in the corner, the victory screen (pause, CAMPAIGN / KEEP PLAYING), progress in a file through an environment request |
+| Format | Saves 9.0 (new counters in `Stats`) |

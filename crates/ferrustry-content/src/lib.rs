@@ -4,6 +4,7 @@
 //! именами и разрешаются при построении [`ContentRegistry`]; системы симуляции работают только
 //! с числовыми ID.
 
+pub mod campaign;
 mod reference;
 pub use reference::DocLang;
 

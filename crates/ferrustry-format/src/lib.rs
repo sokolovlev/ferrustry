@@ -30,7 +30,7 @@ use ferrustry_sim::World;
 /// Сигнатура файла.
 pub const MAGIC: &[u8; 8] = b"FERRUSTR";
 /// Текущая версия формата.
-pub const VERSION: (u16, u16) = (8, 0);
+pub const VERSION: (u16, u16) = (9, 0);
 /// Версия формата карт (`.fmap`). Карта хранит контент по именам и не зависит от
 /// внутренних структур симуляции, поэтому версионируется отдельно от сохранений.
 pub const MAP_VERSION: (u16, u16) = (1, 0);
@@ -288,10 +288,11 @@ mod tests {
             Err(FormatError::WrongKind { .. })
         ));
         bytes[8] = FileKind::Save as u8;
-        bytes[9] = 9;
+        let next = VERSION.0 + 1;
+        bytes[9..11].copy_from_slice(&next.to_le_bytes());
         assert!(matches!(
             read_save(&bytes, &reg),
-            Err(FormatError::UnsupportedVersion(9, 0))
+            Err(FormatError::UnsupportedVersion(v, 0)) if v == next
         ));
     }
 

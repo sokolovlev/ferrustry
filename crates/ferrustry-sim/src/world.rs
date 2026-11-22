@@ -201,6 +201,10 @@ pub struct Stats {
     pub destroyed: Vec<u64>,
     /// Создано отладочными/бенчмарк-инструментами.
     pub spawned: Vec<u64>,
+    /// Добыто бурами и сделано рецептами — без возвратов стоимости (цели кампании).
+    pub made: Vec<u64>,
+    /// Отремонтировано руин (D-01).
+    pub repaired: u64,
 }
 
 impl Stats {
@@ -210,6 +214,8 @@ impl Stats {
             consumed: vec![0; items],
             destroyed: vec![0; items],
             spawned: vec![0; items],
+            made: vec![0; items],
+            repaired: 0,
         }
     }
 
@@ -801,6 +807,7 @@ impl World {
         match self.place_free(reg, of, origin, rot) {
             Ok(_) => {
                 self.pay_stacks(&cost);
+                self.stats.repaired += 1;
                 Ok(())
             }
             Err(e) => {
@@ -1809,6 +1816,7 @@ impl World {
                 row.progress -= threshold;
                 row.buffer += 1;
                 Stats::bump(&mut self.stats.produced, item, 1);
+                Stats::bump(&mut self.stats.made, item, 1);
             }
             self.noise_acc += noise;
         }
@@ -1924,6 +1932,7 @@ impl World {
                     for (s, n) in outputs.iter().zip(row.outputs.iter_mut()) {
                         *n += s.count;
                         Stats::bump(&mut self.stats.produced, s.item, u64::from(s.count));
+                        Stats::bump(&mut self.stats.made, s.item, u64::from(s.count));
                     }
                 }
             }

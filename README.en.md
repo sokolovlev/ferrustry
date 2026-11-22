@@ -27,7 +27,7 @@ and a focus on measurable performance of large bases.
 cargo run --release -p ferrustry-client
 ```
 
-**NEW GAME** → choose the map size, difficulty and seed → **START**. You start with a core and 300
+**CAMPAIGN** — three sectors with objectives, from easy to hard. Or free play: **NEW GAME** → choose the map size, difficulty and seed → **START**. You start with a core and 300
 ingots; ore and carbon are nearby, and enemies arrive from the map edges in a few minutes.
 
 First chain: a **bore** on ore → **conveyor** → **smelter** (two **wind turbines** next to it) → conveyor → **core**.
