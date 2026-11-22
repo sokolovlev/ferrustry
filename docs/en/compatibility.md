@@ -12,7 +12,7 @@ is **not a goal**.
 | Save (`.fsave`) | Full simulation state | **Partial** (format 8.0 since 2026-11-20 — local power network rebuilds, free net ids; 7.x and older files are rejected with a version error — no migrations before release): container v1.0, round-trip and continuation with the same hash are tested; content ID remapping and migrations are not implemented (a file with different content is rejected) | Read saves of the previous minor game version; migrations |
 | Schematic (`.fschem`, + a base64 text string) | A build fragment to copy | **Implemented** (without the text string): buildings by content **name**, bounds checking; since 2026-11-20 its own format version 1.0 (files written earlier with the save version 2.x–7.x still load) | Always backward compatible; an unknown building is a clear error |
 | Content (RON) | Resources, blocks, units, recipes | **Implemented**: items, fluids, floors, ores, 21 building kinds, enemies and wave composition ([format](content-format.md)) | The schema is versioned, validator |
-| Network protocol | Client ↔ server | **Implemented** (2026-11-21, protocol 2): command relay (D-18), UDP via renet, game version and content fingerprint checked on connect | Exact `protocol_version` match |
+| Network protocol | Client ↔ server | **Implemented** (2026-11-22, protocol 3 — the ruin repair command): command relay (D-18), UDP via renet, game version and content fingerprint checked on connect | Exact `protocol_version` match |
 | Replay (`.freplay`) | Initial world + command stream + checkpoint hashes | **Implemented**: container v1.0, sections NAMES/META/WORLD/INPUTS/CHECKPOINTS | Only the same simulation version (`SIM_VERSION`) and the same content |
 
 ## 2. Container format (draft)

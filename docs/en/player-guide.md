@@ -192,6 +192,20 @@ waves, put arc towers behind the line of guns and don't forget the power.
 
 If the last core is destroyed, the game is lost.
 
+## Ruins
+
+The world of Ferrustry was industrial once — and died. The map holds **ruins** of abandoned outposts:
+broken smelters with wind turbines, bores on ore, forges, turrets. They don't work, but:
+
+- **Repair** — click a ruin and press **REPAIR** in its card: the ruin becomes a working building of the same
+  kind in the same place for **30%** of its price. A repaired bore on ore starts mining right away.
+- **Salvage** — remove the ruin (RMB drag): **50%** of the original building's price goes to the core. An early
+  way to get ingots when an outpost isn't where you need it.
+
+Ruins are at least 16 tiles from the core, so you have to run belts or power to them. Enemies go around
+ruins or break them like any building; a ruin destroyed by enemies gives nothing.
+The exact prices are in the "Ruins" section of the [reference](content-reference.md#ruins).
+
 ## Schematics
 
 **C** + frame copies buildings (with rotations and sorter filters) into a schematic. Click to paste,

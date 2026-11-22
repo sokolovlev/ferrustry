@@ -41,6 +41,11 @@ pub enum Command {
         /// Ресурс фильтра.
         item: Option<ItemId>,
     },
+    /// Отремонтировать руину (D-01): она заменяется постройкой-оригиналом за часть стоимости.
+    Repair {
+        /// Любой тайл руины.
+        at: TilePos,
+    },
 }
 
 /// Правила партии.
@@ -91,6 +96,12 @@ pub enum CommandError {
     /// Постройку нельзя так настроить.
     #[error("building is not configurable")]
     NotConfigurable,
+    /// Эту постройку нельзя поставить командой (руина вне редактора).
+    #[error("this building cannot be built")]
+    NotPlaceable,
+    /// Ремонтировать можно только руину.
+    #[error("only ruins can be repaired")]
+    NotARuin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -745,10 +756,18 @@ impl World {
     pub fn apply(&mut self, reg: &ContentRegistry, cmd: &Command) -> Result<(), CommandError> {
         match *cmd {
             Command::Place { block, origin, rot } => {
+                // руины ставят только генератор карты и редактор (песочница)
+                if usize::from(block.0) < reg.blocks().len()
+                    && matches!(reg.block(block).kind, BlockKind::Ruin { .. })
+                    && !self.rules.infinite_resources
+                {
+                    return Err(CommandError::NotPlaceable);
+                }
                 self.place(reg, block, origin, rot).map(|_| ())
             }
             Command::Remove { at } => self.remove(reg, at),
             Command::Configure { at, item } => self.configure(at, item),
+            Command::Repair { at } => self.repair(reg, at),
         }
     }
 
@@ -765,6 +784,84 @@ impl World {
             .ok_or(CommandError::NotConfigurable)?;
         row.filter = item;
         Ok(())
+    }
+
+    /// Ремонт руины: постройка-оригинал на том же месте за долю стоимости (D-01).
+    fn repair(&mut self, reg: &ContentRegistry, at: TilePos) -> Result<(), CommandError> {
+        let id = self.grid.building(at).ok_or(CommandError::NothingThere)?;
+        let b = self.buildings.get(id).ok_or(CommandError::NothingThere)?;
+        let BlockKind::Ruin { of } = reg.block(b.block).kind else {
+            return Err(CommandError::NotARuin);
+        };
+        let (ruin, origin, rot) = (b.block, b.origin, b.rot);
+        let cost = reg.ruin_rule().repair_cost(&reg.block(of).cost);
+        self.check_stacks(&cost)?;
+        // руина уходит без добычи; оригинал встаёт бесплатно, оплачивается доля
+        self.remove_impl(reg, at, false)?;
+        match self.place_free(reg, of, origin, rot) {
+            Ok(_) => {
+                self.pay_stacks(&cost);
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.place_free(reg, ruin, origin, rot);
+                Err(e)
+            }
+        }
+    }
+
+    /// Поставить постройку без оплаты (ремонт оплачивает свою долю сам).
+    fn place_free(
+        &mut self,
+        reg: &ContentRegistry,
+        block: BlockId,
+        origin: TilePos,
+        rot: Dir,
+    ) -> Result<BuildingId, CommandError> {
+        let infinite = self.rules.infinite_resources;
+        self.rules.infinite_resources = true;
+        let res = self.place(reg, block, origin, rot);
+        self.rules.infinite_resources = infinite;
+        res
+    }
+
+    /// Хватает ли в ядрах ресурсов.
+    fn check_stacks(&self, cost: &[ferrustry_content::ItemStack]) -> Result<(), CommandError> {
+        if self.rules.infinite_resources {
+            return Ok(());
+        }
+        let total = self.total_core_items();
+        for st in cost {
+            if total.get(usize::from(st.item.0)).copied().unwrap_or(0) < u64::from(st.count) {
+                return Err(CommandError::NotEnough(st.item));
+            }
+        }
+        Ok(())
+    }
+
+    /// Списывает ресурсы из ядер (по порядку ядер). Вызывать после `check_stacks`.
+    fn pay_stacks(&mut self, cost: &[ferrustry_content::ItemStack]) {
+        if self.rules.infinite_resources {
+            return;
+        }
+        for st in cost {
+            let mut left = st.count;
+            for row in &mut self.cores.rows {
+                if let Some(c) = row.items.get_mut(usize::from(st.item.0)) {
+                    let take = left.min(*c);
+                    *c -= take;
+                    left -= take;
+                }
+                if left == 0 {
+                    break;
+                }
+            }
+            Stats::bump(
+                &mut self.stats.consumed,
+                st.item,
+                u64::from(st.count - left),
+            );
+        }
     }
 
     /// Хватает ли в ядрах ресурсов на постройку.
@@ -811,7 +908,12 @@ impl World {
         if self.rules.infinite_resources {
             return;
         }
-        for st in reg.block(block).cost.clone() {
+        // снос руины даёт долю стоимости оригинала (D-01)
+        let back = match reg.block(block).kind {
+            BlockKind::Ruin { of } => reg.ruin_rule().salvage(&reg.block(of).cost),
+            _ => reg.block(block).cost.clone(),
+        };
+        for st in back {
             let put = self.add_to_cores(reg, st.item, st.count);
             Stats::bump(&mut self.stats.produced, st.item, u64::from(put));
         }
@@ -854,6 +956,7 @@ impl World {
             BlockKind::Turret { .. } | BlockKind::ArcTurret { .. } => KindTag::Turret,
             BlockKind::Depot { .. } => KindTag::Depot,
             BlockKind::Wall => KindTag::Wall,
+            BlockKind::Ruin { .. } => KindTag::Ruin,
         };
         self.topo_epoch += 1;
         let id = self.buildings.insert(Building {
@@ -957,7 +1060,8 @@ impl World {
             | BlockKind::CoolingTower { .. }
             | BlockKind::HeatPipe { .. }
             | BlockKind::Radiator { .. }
-            | BlockKind::Wall => self.passive.push(id, ()),
+            | BlockKind::Wall
+            | BlockKind::Ruin { .. } => self.passive.push(id, ()),
             BlockKind::Turret { .. } | BlockKind::ArcTurret { .. } => {
                 self.turrets.push(id, Default::default())
             }
@@ -1120,7 +1224,8 @@ impl World {
             | KindTag::CoolingTower
             | KindTag::HeatPipe
             | KindTag::Radiator
-            | KindTag::Wall => self.passive.swap_remove(b.row).map(|(_, m)| m),
+            | KindTag::Wall
+            | KindTag::Ruin => self.passive.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Turret => self.turrets.swap_remove(b.row).map(|(_, m)| m),
             KindTag::Condenser => self.condensers.swap_remove(b.row).map(|(_, m)| m),
             KindTag::HeatEngine => self.engines.swap_remove(b.row).map(|(_, m)| m),
@@ -1441,7 +1546,8 @@ impl World {
             | KindTag::HeatPipe
             | KindTag::Radiator
             | KindTag::HeatEngine
-            | KindTag::Wall => Link::Refuses,
+            | KindTag::Wall
+            | KindTag::Ruin => Link::Refuses,
         }
     }
 
@@ -2219,7 +2325,8 @@ impl World {
                 | KindTag::CoolingTower
                 | KindTag::HeatPipe
                 | KindTag::Radiator
-                | KindTag::Wall => (self.passive.len(), self.passive.owners.get(b.row as usize)),
+                | KindTag::Wall
+                | KindTag::Ruin => (self.passive.len(), self.passive.owners.get(b.row as usize)),
                 KindTag::Turret => (self.turrets.len(), self.turrets.owners.get(b.row as usize)),
                 KindTag::Depot => (self.depots.len(), self.depots.owners.get(b.row as usize)),
                 KindTag::Condenser => (
@@ -2528,6 +2635,15 @@ pub enum Detail {
     },
     /// Стена.
     Wall,
+    /// Руина (D-01): что это было, цена ремонта и добыча при сносе.
+    Ruin {
+        /// Постройка-оригинал.
+        of: BlockId,
+        /// Цена ремонта.
+        repair: Vec<ferrustry_content::ItemStack>,
+        /// Что вернёт снос.
+        salvage: Vec<ferrustry_content::ItemStack>,
+    },
 }
 
 /// Результат осмотра постройки.
@@ -2672,6 +2788,15 @@ impl World {
                 ammo: self.turrets.rows.get(row)?.ammo,
             },
             (_, KindTag::Wall) => Detail::Wall,
+            (BlockKind::Ruin { of }, _) => {
+                let rule = reg.ruin_rule();
+                let cost = &reg.block(*of).cost;
+                Detail::Ruin {
+                    of: *of,
+                    repair: rule.repair_cost(cost),
+                    salvage: rule.salvage(cost),
+                }
+            }
             (_, KindTag::HeatEngine) => Detail::HeatEngine {
                 output: self.engines.rows.get(row)?.output,
             },

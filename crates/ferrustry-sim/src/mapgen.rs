@@ -205,7 +205,10 @@ pub fn generate(reg: &ContentRegistry, s: &MapSettings) -> Result<World, Scenari
             carve(&mut world, ids.basalt, sp, TilePos::new(cx, cy));
         }
     }
-    world.set_spawns(spawns);
+    world.set_spawns(spawns.clone());
+
+    // разрушенные аванпосты (D-01 «Reforge»): ремонт за долю цены или разбор на слитки
+    place_ruins(&mut world, reg, s, &spawns, &ore_spots);
 
     crate::scenario::build(
         &mut world,
@@ -227,6 +230,86 @@ pub fn generate(reg: &ContentRegistry, s: &MapSettings) -> Result<World, Scenari
     world.grant(reg, ids.iron_ingot, STARTER_INGOTS);
     world.prepare_flow(reg);
     Ok(world)
+}
+
+/// Число разрушенных аванпостов по размеру карты.
+pub fn outposts(size: MapSize) -> u32 {
+    match size {
+        MapSize::Small => 3,
+        MapSize::Medium => 5,
+        MapSize::Large => 8,
+    }
+}
+
+/// Аванпосты из руин: не ближе 16 тайлов к центру (там будет ядро и стартовая площадка) и не на
+/// площадках появления врагов. Что не встало (занято, шлак) — пропускается; набор детерминирован
+/// seed. Ставятся в песочнице, до правил партии: командой стройки руину не поставить.
+fn place_ruins(
+    world: &mut World,
+    reg: &ContentRegistry,
+    s: &MapSettings,
+    spawns: &[TilePos],
+    ore_spots: &[(i32, i32, i32, ferrustry_content::OreId)],
+) {
+    let ruin = |n: &str| reg.block_by_name(n);
+    let (w, h) = s.size.dims();
+    let (cx, cy) = (w / 2, h / 2);
+    let mut rng = crate::rng::Rng::new(s.seed ^ 0x2B1);
+    let far = |x: i32, y: i32| {
+        (x - cx).pow(2) + (y - cy).pow(2) >= 16 * 16
+            && spawns
+                .iter()
+                .all(|sp| (x - sp.x).abs() > 6 || (y - sp.y).abs() > 6)
+            && x >= 2
+            && y >= 2
+            && x < w - 4
+            && y < h - 4
+    };
+    let put = |world: &mut World, name: &str, x: i32, y: i32| {
+        if let Some(block) = ruin(name)
+            && far(x, y)
+        {
+            let _ = world.apply(
+                reg,
+                &Command::Place {
+                    block,
+                    origin: TilePos::new(x, y),
+                    rot: Dir::Right,
+                },
+            );
+        }
+    };
+    // буры — на рудных пятнах вдали от старта
+    let far_ores: Vec<(i32, i32)> = ore_spots
+        .iter()
+        .filter(|&&(x, y, _, _)| far(x - 1, y - 1))
+        .map(|&(x, y, _, _)| (x - 1, y - 1))
+        .collect();
+    for k in 0..outposts(s.size) {
+        let (x, y) = (
+            rng.below((w - 8) as u32) as i32 + 4,
+            rng.below((h - 8) as u32) as i32 + 4,
+        );
+        match k % 4 {
+            0 => {
+                put(world, "ruined_smelter", x, y);
+                put(world, "ruined_wind_turbine", x + 2, y);
+                put(world, "ruined_wind_turbine", x + 2, y + 1);
+            }
+            1 if !far_ores.is_empty() => {
+                let (ox, oy) = far_ores[rng.below(far_ores.len() as u32) as usize];
+                put(world, "ruined_bore", ox, oy);
+            }
+            2 => {
+                put(world, "ruined_steel_forge", x, y);
+                put(world, "ruined_smelter", x + 3, y);
+            }
+            _ => {
+                put(world, "ruined_gun_turret", x, y);
+                put(world, "ruined_gun_turret", x + 3, y + 1);
+            }
+        }
+    }
 }
 
 /// Проходим ли путь по полу между двумя тайлами (BFS по 4 соседям).
@@ -332,6 +415,43 @@ mod tests {
                     u64::from(STARTER_INGOTS)
                 );
             }
+        }
+    }
+
+    #[test]
+    fn maps_have_ruined_outposts_away_from_the_start() {
+        let reg = ContentRegistry::base().unwrap();
+        for size in [MapSize::Small, MapSize::Medium, MapSize::Large] {
+            let mut total = 0;
+            for seed in 0..12 {
+                let w = generate(&reg, &settings(size, seed)).unwrap();
+                let (mw, mh) = size.dims();
+                let (cx, cy) = (mw / 2, mh / 2);
+                let ruins: Vec<TilePos> = w
+                    .buildings()
+                    .iter()
+                    .filter(|(_, b)| b.tag == crate::KindTag::Ruin)
+                    .map(|(_, b)| b.origin)
+                    .collect();
+                for r in &ruins {
+                    assert!(
+                        (r.x - cx).pow(2) + (r.y - cy).pow(2) >= 16 * 16,
+                        "{size:?} {seed}: ruin at {r:?} too close to the start"
+                    );
+                    for sp in w.spawns() {
+                        assert!(
+                            (r.x - sp.x).abs() > 6 || (r.y - sp.y).abs() > 6,
+                            "{size:?} {seed}: ruin on a spawn clearing"
+                        );
+                    }
+                }
+                total += ruins.len();
+            }
+            // в среднем хотя бы по постройке на аванпост
+            assert!(
+                total >= 12 * outposts(size) as usize,
+                "{size:?}: {total} ruins over 12 maps"
+            );
         }
     }
 

@@ -98,6 +98,8 @@ struct RawContent {
     waves: Vec<RawWave>,
     #[serde(default)]
     noise: RawNoise,
+    #[serde(default)]
+    ruins: RawRuins,
     ores: Vec<RawOre>,
     blocks: Vec<RawBlock>,
 }
@@ -136,6 +138,22 @@ struct RawBlock {
     #[serde(default)]
     noise: u32,
     kind: RawKind,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRuins {
+    repair_percent: u32,
+    salvage_percent: u32,
+}
+
+impl Default for RawRuins {
+    fn default() -> Self {
+        Self {
+            repair_percent: 30,
+            salvage_percent: 50,
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -267,6 +285,9 @@ enum RawKind {
     Splitter,
     Sorter,
     Overflow,
+    Ruin {
+        of: String,
+    },
     Bridge {
         range: u32,
         interval: u32,
@@ -471,6 +492,12 @@ pub enum BlockKind {
     Sorter,
     /// Переполнитель 1×1: предмет идёт прямо, а если впереди занято — вбок (поочерёдно).
     Overflow,
+    /// Руина (D-01 «Reforge»): не работает; ремонт превращает её в постройку `of` за часть
+    /// стоимости, снос даёт часть стоимости `of` ([`RuinRule`]). Игрок построить руину не может.
+    Ruin {
+        /// Что это было.
+        of: BlockId,
+    },
     /// Мост: переносит предметы над тайлами к следующему мосту того же направления.
     Bridge {
         /// Дальность поиска партнёра в тайлах.
@@ -525,6 +552,39 @@ impl NoiseRule {
         1000 + noise
             .saturating_mul(self.speedup_per_unit)
             .min(self.max_speedup)
+    }
+}
+
+/// Руины (D-01): цена ремонта и добыча при разборе — в процентах стоимости оригинала.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuinRule {
+    /// Ремонт: процент стоимости (округление вверх).
+    pub repair_percent: u32,
+    /// Разбор: процент стоимости, возвращаемый в ядро (округление вниз).
+    pub salvage_percent: u32,
+}
+
+impl RuinRule {
+    /// Стоимость ремонта руины постройки со стоимостью `cost`.
+    pub fn repair_cost(self, cost: &[ItemStack]) -> Vec<ItemStack> {
+        cost.iter()
+            .map(|s| ItemStack {
+                item: s.item,
+                count: (s.count * self.repair_percent).div_ceil(100),
+            })
+            .filter(|s| s.count > 0)
+            .collect()
+    }
+
+    /// Что даёт разбор руины постройки со стоимостью `cost`.
+    pub fn salvage(self, cost: &[ItemStack]) -> Vec<ItemStack> {
+        cost.iter()
+            .map(|s| ItemStack {
+                item: s.item,
+                count: s.count * self.salvage_percent / 100,
+            })
+            .filter(|s| s.count > 0)
+            .collect()
     }
 }
 
@@ -637,6 +697,7 @@ pub struct ContentRegistry {
     unit_names: HashMap<String, UnitTypeId>,
     waves: Vec<WaveRule>,
     noise: NoiseRule,
+    ruins: RuinRule,
     fluids: Vec<FluidDef>,
     fluid_names: HashMap<String, FluidId>,
     floor_names: HashMap<String, FloorId>,
@@ -909,6 +970,9 @@ impl ContentRegistry {
                     positive(capacity, || p("capacity"))?;
                     BlockKind::Core { capacity }
                 }
+                RawKind::Ruin { of } => BlockKind::Ruin {
+                    of: resolve(&block_names, &of, "block", || p("of"))?,
+                },
                 RawKind::Splitter | RawKind::Sorter | RawKind::Overflow => {
                     if block.size != 1 {
                         return Err(ContentError::Invalid {
@@ -1075,6 +1139,35 @@ impl ContentRegistry {
             });
         }
 
+        // руины: оригинал того же размера и не руина; построить руину нельзя (нет стоимости)
+        for (i, b) in blocks.iter().enumerate() {
+            if let BlockKind::Ruin { of } = b.kind {
+                let p = |f: &str| format!("blocks[{i}] `{}`.{f}", b.name);
+                let orig = &blocks[usize::from(of.0)];
+                let why = if matches!(orig.kind, BlockKind::Ruin { .. }) {
+                    Some((p("of"), "a ruin cannot be a ruin of a ruin"))
+                } else if orig.size != b.size {
+                    Some((p("size"), "must match the size of the original block"))
+                } else if !b.cost.is_empty() {
+                    Some((p("cost"), "ruins cannot be built, leave the cost empty"))
+                } else {
+                    None
+                };
+                if let Some((path, reason)) = why {
+                    return Err(ContentError::Invalid {
+                        path,
+                        reason: reason.into(),
+                    });
+                }
+            }
+        }
+        if raw.ruins.repair_percent > 100 || raw.ruins.salvage_percent > 100 {
+            return Err(ContentError::Invalid {
+                path: "ruins".into(),
+                reason: "percentages must be in 0..=100".into(),
+            });
+        }
+
         let mut waves = Vec::with_capacity(raw.waves.len());
         for (i, w) in raw.waves.iter().enumerate() {
             let p = |f: &str| format!("waves[{i}].{f}");
@@ -1106,6 +1199,10 @@ impl ContentRegistry {
             noise: NoiseRule {
                 speedup_per_unit: raw.noise.speedup_per_unit,
                 max_speedup: raw.noise.max_speedup,
+            },
+            ruins: RuinRule {
+                repair_percent: raw.ruins.repair_percent,
+                salvage_percent: raw.ruins.salvage_percent,
             },
             fluids,
             fluid_names,
@@ -1182,6 +1279,11 @@ impl ContentRegistry {
         self.noise
     }
 
+    /// Правило руин (D-01).
+    pub fn ruin_rule(&self) -> RuinRule {
+        self.ruins
+    }
+
     /// Тип юнита. Паникует, если ID получен не из этого реестра.
     pub fn unit(&self, id: UnitTypeId) -> &UnitDef {
         &self.units[usize::from(id.0)]
@@ -1208,7 +1310,7 @@ impl ContentRegistry {
     /// недетерминированным порядком обхода, поэтому не входят).
     pub fn fingerprint(&self) -> u64 {
         let text = format!(
-            "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
+            "{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
             self.floors,
             self.items,
             self.ores,
@@ -1216,7 +1318,8 @@ impl ContentRegistry {
             self.units,
             self.waves,
             self.noise,
-            self.fluids
+            self.fluids,
+            self.ruins
         );
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
         for b in text.bytes() {
@@ -1267,6 +1370,40 @@ pub struct NameTable {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ruins_are_validated_and_priced() {
+        let reg = ContentRegistry::base().unwrap();
+        let rule = reg.ruin_rule();
+        let smelter = reg.block(reg.block_by_name("smelter").unwrap());
+        let ruin = reg.block(reg.block_by_name("ruined_smelter").unwrap());
+        assert!(matches!(ruin.kind, BlockKind::Ruin { .. }));
+        // 25 слитков: ремонт 30% вверх = 8, разбор 50% вниз = 12
+        assert_eq!(smelter.cost[0].count, 25);
+        assert_eq!(rule.repair_cost(&smelter.cost)[0].count, 8);
+        assert_eq!(rule.salvage(&smelter.cost)[0].count, 12);
+        let bad = |from: &str, to: &str| {
+            let text = BASE_CONTENT.replacen(from, to, 1);
+            assert_ne!(text, BASE_CONTENT, "{from}");
+            ContentRegistry::from_ron(&text).unwrap_err().to_string()
+        };
+        let e = bad(
+            r#"kind: Ruin(of: "smelter")"#,
+            r#"kind: Ruin(of: "ruined_bore")"#,
+        );
+        assert!(e.contains("ruin of a ruin"), "{e}");
+        let e = bad(r#"kind: Ruin(of: "bore")"#, r#"kind: Ruin(of: "core")"#);
+        assert!(e.contains("size"), "{e}");
+        let e = bad(
+            r#"(name: "ruined_bore", size: 2,"#,
+            r#"(name: "ruined_bore", size: 2, cost: [("iron_ingot", 1)],"#,
+        );
+        assert!(e.contains("cost"), "{e}");
+        let e = bad("repair_percent: 30", "repair_percent: 130");
+        assert!(e.contains("ruins"), "{e}");
+        let e = bad(r#"kind: Ruin(of: "bore")"#, r#"kind: Ruin(of: "no_such")"#);
+        assert!(e.contains("no_such"), "{e}");
+    }
 
     #[test]
     fn fingerprint_is_stable_and_sees_numbers() {

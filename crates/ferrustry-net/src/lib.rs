@@ -23,7 +23,7 @@ pub use server::{Server, ServerConfig, ServerEvent};
 pub use udp::{DEFAULT_PORT, UdpHub, UdpLink, UdpPeer};
 
 /// Версия протокола: несовпадение — понятный отказ при подключении.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Предел размера одного сообщения (снимок мегабазы — ~1,6 МБ).
 pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;

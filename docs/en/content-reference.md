@@ -66,6 +66,18 @@ Floors: `basalt`, `ash`, `slag_pool` (not buildable).
 | `arc_tower` | 2×2 | 40 `iron_ingot` + 15 `steel` | 350 | range 7, instant 40 damage discharge, **ignores armor**; at full power 1.2 discharges/s (48 damage/s); power 8/tick while recharging |
 | `iron_wall` | 1×1 | 4 `iron_ingot` | 400 | health only; enemies prefer to go around high-health buildings |
 
+### Ruins
+
+Ruins are generated on the map and don't work. **Repair** turns a ruin into the original building for 30% of its cost (rounded up); **removing** it returns 50% of the original's cost (rounded down). Ruins cannot be built.
+
+| Ruin | Size | Health | Was | Repair | Removal gives |
+|---|---|---|---|---|---|
+| `ruined_bore` | 2×2 | 120 | `bore` | 3 `iron_ingot` | 5 `iron_ingot` |
+| `ruined_smelter` | 2×2 | 150 | `smelter` | 8 `iron_ingot` | 12 `iron_ingot` |
+| `ruined_steel_forge` | 2×2 | 200 | `steel_forge` | 12 `iron_ingot` | 20 `iron_ingot` |
+| `ruined_wind_turbine` | 1×1 | 60 | `wind_turbine` | 3 `iron_ingot` | 5 `iron_ingot` |
+| `ruined_gun_turret` | 2×2 | 200 | `gun_turret` | 14 `iron_ingot` | 22 `iron_ingot` |
+
 ## Enemies
 
 | Enemy | Health | Armor | Speed, tiles/s | Attack | Damage/s |

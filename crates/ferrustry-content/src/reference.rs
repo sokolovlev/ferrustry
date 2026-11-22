@@ -73,6 +73,8 @@ impl ContentRegistry {
             | BlockKind::HeatPipe { .. }
             | BlockKind::Radiator { .. } => 3,
             BlockKind::Turret { .. } | BlockKind::ArcTurret { .. } | BlockKind::Wall => 4,
+            // руины — отдельный раздел
+            BlockKind::Ruin { .. } => CATEGORIES.len(),
         }
     }
 
@@ -193,6 +195,13 @@ impl ContentRegistry {
                 "раздаёт предметы по кругу на три другие стороны"
             }
             .into(),
+            BlockKind::Ruin { of } => {
+                if en {
+                    format!("a ruin of `{}`", self.block(*of).name)
+                } else {
+                    format!("руина `{}`", self.block(*of).name)
+                }
+            }
             BlockKind::Overflow => if en {
                 "items go straight; when the way ahead is blocked, sideways (alternating)"
             } else {
@@ -448,6 +457,58 @@ impl ContentRegistry {
                     self.stacks(&b.cost),
                     b.health,
                     self.describe(lang, b),
+                    s = b.size
+                );
+            }
+        }
+
+        let ruins: Vec<_> = self
+            .blocks()
+            .iter()
+            .filter_map(|b| match b.kind {
+                BlockKind::Ruin { of } => Some((b, self.block(of))),
+                _ => None,
+            })
+            .collect();
+        if !ruins.is_empty() {
+            let rule = self.ruin_rule();
+            let _ = writeln!(w, "\n### {}\n", t("Руины", "Ruins"));
+            let _ = writeln!(
+                w,
+                "{}\n",
+                if en {
+                    format!(
+                        "Ruins are generated on the map and don't work. **Repair** turns a ruin into the original \
+                         building for {}% of its cost (rounded up); **removing** it returns {}% of the original's \
+                         cost (rounded down). Ruins cannot be built.",
+                        rule.repair_percent, rule.salvage_percent
+                    )
+                } else {
+                    format!(
+                        "Руины расставляет генератор карты, они не работают. **Ремонт** превращает руину в исходную \
+                         постройку за {}% её стоимости (с округлением вверх); **снос** возвращает {}% стоимости \
+                         исходной постройки (с округлением вниз). Построить руину нельзя.",
+                        rule.repair_percent, rule.salvage_percent
+                    )
+                }
+            );
+            let _ = writeln!(
+                w,
+                "{}\n|---|---|---|---|---|---|",
+                t(
+                    "| Руина | Размер | Прочность | Была | Ремонт | Снос даёт |",
+                    "| Ruin | Size | Health | Was | Repair | Removal gives |"
+                )
+            );
+            for (b, of) in ruins {
+                let _ = writeln!(
+                    w,
+                    "| `{}` | {s}×{s} | {} | `{}` | {} | {} |",
+                    b.name,
+                    b.health,
+                    of.name,
+                    self.stacks(&rule.repair_cost(&of.cost)),
+                    self.stacks(&rule.salvage(&of.cost)),
                     s = b.size
                 );
             }

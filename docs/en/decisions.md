@@ -7,7 +7,7 @@ owner's answer.
 
 | ID | Question | Proposal | Alternatives | Status |
 |---|---|---|---|---|
-| D-01 | Setting and theme | "Reforge": restoring a dead industrial world, repairing ruins as a mechanic | Your own option | Approved 2026-11-15 |
+| D-01 | Setting and theme | "Reforge": restoring a dead industrial world, repairing ruins as a mechanic | Your own option | Approved 2026-11-15; ruin repair — done 2026-11-22 |
 | D-02 | Distinctive mechanics | Heat as a third network; waves that react to the base's "noise" | Only the classic genre set | Approved 2026-11-15; heat — done 2026-11-17, noise — done 2026-11-19 |
 | D-12 | License | Code MIT OR Apache-2.0; assets CC BY-SA 4.0; brand under a trademark policy | MIT only; assets CC BY 4.0 | Approved 2026-11-15 |
 | D-13 | Descriptor in the brand guidelines | "Industrial strategy, reengineered in Rust" instead of "reimplementation of Mindustry" | Your own option | Approved 2026-11-15 |

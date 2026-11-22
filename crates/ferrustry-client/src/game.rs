@@ -252,6 +252,8 @@ pub struct Game {
     maps_page: usize,
     net: Option<net::NetPlay>,
     join: join::JoinForm,
+    /// Кнопка ремонта в инспекторе руины (последний кадр; для тестов).
+    repair_button: Option<Rect>,
 }
 
 /// Скользящий счётчик частоты.
@@ -333,6 +335,7 @@ impl Game {
             maps_page: 0,
             net: None,
             join: join::JoinForm::default(),
+            repair_button: None,
             quicksave_exists: std::path::Path::new(QUICKSAVE).exists(),
         }
     }
@@ -1540,6 +1543,7 @@ impl Game {
                 "C + DRAG            COPY BUILDINGS (THEN CLICK TO PASTE)",
                 "F6 / F7             SAVE / LOAD SCHEMATIC",
                 "CLICK A BUILDING    INSPECT (SET SORTER FILTER)",
+                "CLICK A RUIN        REPAIR IT CHEAPLY (OR REMOVE FOR SALVAGE)",
                 "LEFT CLICK          BUILD",
                 "LEFT DRAG           BUILD A LINE (BELTS TURN)",
                 "R                   ROTATE",
@@ -1683,6 +1687,16 @@ impl Game {
             Detail::HeatEngine { output } => lines.push(format!("OUTPUT {output} POWER / TICK")),
             Detail::Turret { ammo } => lines.push(format!("AMMO {ammo} SHOTS")),
             Detail::Wall => {}
+            Detail::Ruin {
+                of,
+                repair,
+                salvage,
+            } => {
+                let of = self.reg.block(*of).name.replace('_', " ").to_uppercase();
+                lines.push(format!("RUIN OF A {of}: DOES NOT WORK"));
+                lines.push(format!("REPAIR: {}", self.stacks(repair)));
+                lines.push(format!("REMOVE (RIGHT DRAG): +{}", self.stacks(salvage)));
+            }
             Detail::Bridge { items, linked } => {
                 lines.push(if *linked {
                     "LINKED: SENDING".to_owned()
@@ -1727,10 +1741,13 @@ impl Game {
         let s = 2.0 * u;
         let row = 18.0 * u;
         let sorter = matches!(ins.detail, Detail::Sorter { .. });
+        let ruin = matches!(ins.detail, Detail::Ruin { .. });
         let n_items = self.reg.items().len();
         let w = 300.0 * u;
         let buttons_h = if sorter {
             (n_items as f32 + 1.0) * (row + 6.0 * u) + 24.0 * u
+        } else if ruin {
+            row + 24.0 * u
         } else {
             0.0
         };
@@ -1748,6 +1765,15 @@ impl Game {
                 l,
                 steel,
             );
+        }
+        self.repair_button = None;
+        if ruin {
+            let by = y + 36.0 * u + lines.len() as f32 * row + 10.0 * u;
+            let r = [x + 12.0 * u, by, w - 24.0 * u, row + 6.0 * u];
+            self.repair_button = Some(r);
+            if ui.button(hud, atlas, white, r, "REPAIR", s, true) {
+                self.queue(vec![Command::Repair { at }]);
+            }
         }
         if sorter {
             let mut by = y + 36.0 * u + lines.len() as f32 * row + 12.0 * u;
@@ -1876,6 +1902,7 @@ impl Game {
                 self.item_name(*ammo)
             ),
             BlockKind::Wall => format!("{name}: {} HEALTH, ENEMIES PREFER TO GO AROUND", d.health),
+            BlockKind::Ruin { .. } => format!("{name}: CLICK TO REPAIR, REMOVE FOR SALVAGE"),
             BlockKind::Pipe { capacity } => format!("{name}: CARRIES FLUID ({capacity})"),
             BlockKind::Condenser {
                 rate, power_use, ..
@@ -2074,6 +2101,47 @@ mod tests {
         click(&mut g, &mut e, center(cancel));
         assert_eq!(g.screen(), Screen::MainMenu);
         assert!(!g.online());
+    }
+
+    #[test]
+    fn clicking_a_ruin_offers_repair() {
+        let (mut g, mut e) = (game(), env());
+        let ruin = g.reg.block_by_name("ruined_smelter").unwrap();
+        let smelter = g.reg.block_by_name("smelter").unwrap();
+        let at = TilePos::new(40, 40);
+        // руины ставит генератор в песочнице — так же и здесь, затем правила демо-карты
+        let rules = g.world.rules().clone();
+        g.world.set_rules(ferrustry_sim::Rules {
+            infinite_resources: true,
+            ..rules.clone()
+        });
+        g.world
+            .apply(
+                &g.reg,
+                &Command::Place {
+                    block: ruin,
+                    origin: at,
+                    rot: Dir::Right,
+                },
+            )
+            .unwrap();
+        g.world.set_rules(rules);
+        g.start_playing();
+        g.paused = true; // на паузе команды применяются сразу
+        frame(&mut g, &mut e);
+        click_tile(&mut g, at);
+        g.handle(Input::MouseDown(Button::Left));
+        g.handle(Input::MouseUp(Button::Left));
+        frame(&mut g, &mut e);
+        let button = g.repair_button.unwrap(); // инспектор руины показывает REPAIR
+        click(&mut g, &mut e, center(button));
+        let ins = g.world.inspect(&g.reg, at).unwrap();
+        assert_eq!(ins.block, smelter, "the ruin became a smelter");
+        frame(&mut g, &mut e);
+        assert!(
+            g.repair_button.is_none(),
+            "no repair button for a working building"
+        );
     }
 
     fn playing() -> (Game, Env) {

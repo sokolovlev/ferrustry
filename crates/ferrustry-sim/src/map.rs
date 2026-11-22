@@ -98,7 +98,7 @@ impl MapDef {
                 }
             }
         }
-        buildings.sort_by_key(|b| (b.origin.y, b.origin.x));
+        // порядок арены (порядок постройки): воссоздание даёт те же ID построек — тот же мир
         Self {
             width: w,
             height: h,

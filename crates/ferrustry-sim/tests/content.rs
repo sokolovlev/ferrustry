@@ -579,3 +579,94 @@ fn overflow_gate_feeds_straight_first_then_sideways() {
     assert_eq!(total, spawned, "no item lost or created");
     w.validate(&reg).unwrap();
 }
+
+/// Мир с ядром в обычных правилах (стройка платная) и запасом слитков.
+fn paid_world(reg: &ContentRegistry, ingots: u32) -> World {
+    let mut w = empty(reg, 40, 40);
+    w.apply(reg, &place(b(reg, "core"), 30, 30, Dir::Right))
+        .unwrap();
+    // руины ставит генератор карты в песочнице — так же и здесь, до включения правил партии
+    w.apply(reg, &place(b(reg, "ruined_smelter"), 10, 10, Dir::Right))
+        .unwrap();
+    w.apply(reg, &place(b(reg, "ruined_gun_turret"), 14, 10, Dir::Right))
+        .unwrap();
+    w.set_rules(ferrustry_sim::Rules {
+        infinite_resources: false,
+        waves: false,
+        ..Default::default()
+    });
+    w.grant(reg, item(reg, "iron_ingot"), ingots);
+    w
+}
+
+fn ingots(w: &World, reg: &ContentRegistry) -> u64 {
+    w.total_core_items()[usize::from(item(reg, "iron_ingot").0)]
+}
+
+#[test]
+fn ruins_are_repaired_for_a_share_of_the_cost() {
+    let reg = reg();
+    let mut w = paid_world(&reg, 100);
+    let at = TilePos::new(10, 10);
+    let ins = w.inspect(&reg, at).unwrap();
+    let Detail::Ruin {
+        of,
+        repair,
+        salvage,
+    } = ins.detail
+    else {
+        panic!("{:?}", ins.detail)
+    };
+    assert_eq!(of, b(&reg, "smelter"));
+    assert_eq!((repair[0].count, salvage[0].count), (8, 12));
+    // ремонт: 8 слитков вместо 25, на месте руины — плавильня с полной прочностью
+    w.apply(&reg, &Command::Repair { at }).unwrap();
+    assert_eq!(ingots(&w, &reg), 92);
+    let ins = w.inspect(&reg, TilePos::new(11, 11)).unwrap();
+    assert_eq!(ins.block, b(&reg, "smelter"));
+    assert_eq!(ins.origin, at);
+    assert_eq!(ins.health, reg.block(b(&reg, "smelter")).health);
+    // плавильня — не руина
+    assert_eq!(
+        w.apply(&reg, &Command::Repair { at }),
+        Err(ferrustry_sim::CommandError::NotARuin)
+    );
+    // снос отремонтированной — полная стоимость плавильни, как у любой постройки
+    w.apply(&reg, &Command::Remove { at }).unwrap();
+    assert_eq!(ingots(&w, &reg), 117);
+    w.validate(&reg).unwrap();
+    assert_conserved(&w, &reg);
+}
+
+#[test]
+fn removing_a_ruin_salvages_and_poverty_blocks_repair() {
+    let reg = reg();
+    let mut w = paid_world(&reg, 10);
+    let turret = TilePos::new(14, 10);
+    // ремонт пушки — 14 слитков, есть 10: отказ, руина на месте
+    assert_eq!(
+        w.apply(&reg, &Command::Repair { at: turret }),
+        Err(ferrustry_sim::CommandError::NotEnough(item(
+            &reg,
+            "iron_ingot"
+        )))
+    );
+    assert!(matches!(
+        w.inspect(&reg, turret).unwrap().detail,
+        Detail::Ruin { .. }
+    ));
+    // разбор: половина стоимости пушки (45) — 22 слитка
+    w.apply(&reg, &Command::Remove { at: turret }).unwrap();
+    assert_eq!(ingots(&w, &reg), 32);
+    assert!(w.inspect(&reg, turret).is_none());
+    // в обычной партии руину не поставить
+    assert_eq!(
+        w.apply(&reg, &place(b(&reg, "ruined_smelter"), 20, 20, Dir::Right)),
+        Err(ferrustry_sim::CommandError::NotPlaceable)
+    );
+    // руина не работает и не шумит
+    run(&mut w, &reg, 60);
+    assert_eq!(w.noise(), 0);
+    w.validate(&reg).unwrap();
+    assert_conserved(&w, &reg);
+}

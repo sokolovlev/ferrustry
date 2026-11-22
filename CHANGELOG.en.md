@@ -8,6 +8,9 @@ saves are incompatible between minor versions (the game reports a format version
 ## Unreleased
 
 ### Added
+- **Ruins** (D-01 "Reforge"): maps have broken outposts (smelters, wind turbines, bores, forges, turrets).
+  Repair costs 30% of the price and the building works; salvage gives 50% of the price to the core. Click a ruin
+  for a card with a REPAIR button. Multiplayer protocol 3.
 - **Multiplayer** (S6-05): the `ferrustry-server` dedicated server (UDP, port 27960; a `.fmap` map, a save
   or the generator) and connecting from the game: the **JOIN** button in the main menu (address and name typed on the keyboard,
   the last server is remembered) or `--connect address --name name`. Co-op for up to 8 players. If a building

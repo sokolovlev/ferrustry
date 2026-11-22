@@ -317,6 +317,48 @@ fn draw_unit(name: &str) -> Canvas {
     }
 }
 
+/// Состарить спрайт: серо-бурый, темнее, трещины и выбитые края.
+fn ruined(mut c: Canvas, name: &str) -> Canvas {
+    let seed = name
+        .bytes()
+        .fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
+    let (w, h) = (c.w as i32, c.h as i32);
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) as usize;
+            let [r, g, b, a] = c.px[i];
+            if a == 0 {
+                continue;
+            }
+            let grey = (u32::from(r) * 30 + u32::from(g) * 59 + u32::from(b) * 11) / 100;
+            let noise = hash2(x as u32, y as u32, seed) % 24;
+            let v = |ch: u8, warm: u32| {
+                // 70% серого, 30% цвета, затем темнее; лёгкий ржавый оттенок
+                let mixed = (grey * 7 + u32::from(ch) * 3) / 10;
+                (mixed * 55 / 100 + warm + noise).min(255) as u8
+            };
+            c.px[i] = [v(r, 14), v(g, 8), v(b, 2), a];
+        }
+    }
+    // трещины
+    for k in 0..3u32 {
+        let hx = |n: u32| (hash2(k, n, seed) % c.w) as f32;
+        let hy = |n: u32| (hash2(n, k, seed) % c.h) as f32;
+        let (x0, y0, x1, y1) = (hx(1), hy(2), hx(3), hy(4));
+        c.thick_line((x0, y0), (x1, y1), 0.8, [0x14, 0x12, 0x10, 0xFF]);
+    }
+    // выбитые куски по краям — прозрачность
+    for y in 0..h {
+        for x in 0..w {
+            let edge = x.min(y).min(w - 1 - x).min(h - 1 - y);
+            if edge < 4 && hash2(x as u32 / 3, y as u32 / 3, seed ^ 0x55).is_multiple_of(5) {
+                c.px[(y * w + x) as usize][3] = 0;
+            }
+        }
+    }
+    c
+}
+
 fn draw_block(name: &str, size: u8) -> Canvas {
     let px = u32::from(size) * TILE_PX;
     let mut c = Canvas::new(px, px);
@@ -677,7 +719,14 @@ impl Atlas {
             c
         }));
         for b in reg.blocks() {
-            items.push((format!("block:{}", b.name), draw_block(&b.name, b.size)));
+            let c = match b.kind {
+                // руина — спрайт оригинала, обесцвеченный, с трещинами и выбоинами (D-01)
+                ferrustry_content::BlockKind::Ruin { of } => {
+                    ruined(draw_block(&reg.block(of).name, b.size), &b.name)
+                }
+                _ => draw_block(&b.name, b.size),
+            };
+            items.push((format!("block:{}", b.name), c));
         }
         for ch in CHARSET.chars() {
             let mut c = Canvas::new(GLYPH_W, GLYPH_H);

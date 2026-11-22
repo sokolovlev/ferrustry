@@ -54,6 +54,7 @@ scripts/check.sh                                                # all checks
 | `Splitter` | — | size 1 |
 | `Sorter` | — (the filter is set by the player) | size 1 |
 | `Overflow` | — (straight, sideways when blocked) | size 1 |
+| `Ruin` | `of` — the building this is a ruin of | the same `size` as `of`; `of` is not a ruin; empty `cost` (cannot be built) |
 | `Bridge` | `range` in tiles, `interval` ticks per item, `buffer` | size 1; all > 0 |
 | `Depot` | `capacity` — items in total | capacity > 0; size ≤ 8 |
 | `Drill` | `base_ticks` — ticks per item with ore under every tile; `buffer` | > 0 |
@@ -137,6 +138,18 @@ wave timer runs faster by `speedup_per_unit` thousandths per unit of noise, but 
 thousandths (1500 — 2.5 times). Without the section (or with zeros) noise does not affect waves.
 `noise` on any other building kind is a load error: that way a typo does not turn into a silently
 ignored parameter.
+
+## Ruins
+
+```ron
+ruins: (repair_percent: 30, salvage_percent: 50),
+blocks: [ ..., (name: "ruined_smelter", size: 2, health: 150, kind: Ruin(of: "smelter")) ],
+```
+
+A ruin (D-01 "Reforge") doesn't work. **Repair** replaces it with the `of` building for `repair_percent` %
+of the cost of `of` (rounded up), **removal** returns `salvage_percent` % of the cost of `of` (rounded
+down). Ruins are placed by the map generator and the editor; a build command in a normal game cannot place
+a ruin. Without the `ruins` section — 30 % and 50 %; values above 100 are a load error.
 
 ## What needs code
 

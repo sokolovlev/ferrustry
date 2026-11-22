@@ -377,3 +377,13 @@ The report is Markdown in two languages; snapshots live in `docs/balance/` with 
 | Ids | Free ids are reused (`PowerState::free`); ids depend on the order of changes, the partition does not. `steady` (fuel-free output) moves with the buildings |
 | Checks | `World::validate` compares the partition with a full walk and recomputes `steady`; a test compares 4×300 ticks of random building/removal with a reference that rebuilds everything every tick (the state matches bit for bit after canonical numbering). The test catches disabled splitting and lost `steady` |
 | Cost | Building on B3-10k with 1682 nodes: 12.6 ms → 11 µs per tick; the power part of building on B3-100k: 2.2 ms → within noise (`examples/power_rebuild_cost.rs`) |
+
+## 26. Ruins (D-01 "Reforge", 2026-11-22)
+
+| Part | What it is |
+|---|---|
+| Content | The `Ruin { of }` building kind and the `ruins` section (`repair_percent`, `salvage_percent`); checks: the original has the same size and is not a ruin, a ruin has no cost |
+| Simulation | `KindTag::Ruin` (no state, the `passive` table); `Command::Repair { at }` — the ruin is removed without salvage, the original is placed for free in the same place with the same rotation, the share of its cost is paid (on refusal the ruin stays); removing a ruin returns a share of the original's cost. `Command::Place` of a ruin in a normal game is `NotPlaceable` (ruins are placed by the generator and the editor in sandbox) |
+| Generator | Outposts by map size (3/5/8): a smelter with wind turbines, a forge with a smelter, a bore on an ore patch, a pair of turrets; at least 16 tiles from the centre and 6 from spawn points |
+| Look | A ruin's sprite is built from the original's: desaturated, darker, cracks, chipped edges |
+| Network | Protocol 3 (a new command) |
